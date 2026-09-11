@@ -41,7 +41,7 @@ export const EVENT_IDENTITY_ROWS: readonly {
   {
     key: "eventName",
     label: "Event name",
-    help: "Page titles, the header, the leaderboard and this panel's reset confirmation. Blank restores “OWASP CTF”.",
+    help: `Page titles, the header, the leaderboard and this panel's reset confirmation. Blank restores “${DEFAULT_EVENT_IDENTITY.eventName}”.`,
     placeholder: DEFAULT_EVENT_IDENTITY.eventName,
     maxLength: EVENT_IDENTITY_MAX.eventName,
   },
@@ -246,6 +246,12 @@ export default function AdminEventTab({
           const status = statusOf(row.key);
           const hasLine = status.state !== "idle";
           const statusId = `identity-${row.key}-status`;
+          const helpId = `identity-${row.key}-help`;
+          // The help paragraph is always in the description — it's static
+          // copy explaining the field, not a transient result — and the
+          // status line joins in only while one is showing, same pattern
+          // AdminSwitch/AdminNumberField use for their own status lines.
+          const describedBy = hasLine ? `${helpId} ${statusId}` : helpId;
           return (
             <div key={row.key} className="flex flex-col gap-1">
               <label htmlFor={`identity-${row.key}`} className="text-sm text-white">{row.label}</label>
@@ -259,10 +265,10 @@ export default function AdminEventTab({
                 disabled={pending}
                 multiline={false}
                 apply={(patch) => applyField(row.key, patch, row.label)}
-                ariaDescribedBy={hasLine ? statusId : undefined}
+                ariaDescribedBy={describedBy}
                 ariaInvalid={status.state === "rejected"}
               />
-              <p className="text-xs text-muted">{row.help}</p>
+              <p id={helpId} className="text-xs text-muted">{row.help}</p>
               <FieldStatusLine id={statusId} status={status} />
             </div>
           );
