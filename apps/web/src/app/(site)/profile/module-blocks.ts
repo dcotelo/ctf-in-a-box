@@ -8,6 +8,7 @@
 // record's the answer key.
 
 import type { AppId } from "@/lib/apps";
+import { enabledTotalMaxPoints } from "@/lib/apps";
 import type { AppProgress, ModuleProgress, UserProfile } from "@/lib/leaderboard/types";
 import type { ModuleId, ResolvedModule } from "@/lib/modules";
 import { moduleUnit } from "@/components/progress/progress-row";
@@ -252,12 +253,18 @@ export function remainingFor(modules: readonly ResolvedModule[], input: ProfileM
 /** The all-module points ceiling, on the same union semantics as each row's —
  *  so the header's "N of M pts available" cannot disagree with the rows under
  *  it after a solved challenge is deleted (issue #330). secure-development
- *  contributes its own ceiling clamped to what is banked, since its catalogue
- *  carries no per-item identity here. */
+ *  contributes the live catalogue's own ceiling (`enabledTotalMaxPoints`, the
+ *  same sum of the enabled targets' points the Challenges page shows) rather
+ *  than `profile?.maxPoints` — that field only exists once the scorer has
+ *  ingested this login's first score, so a fresh login read a ceiling missing
+ *  the whole secure-development term until then (issue #383). `atLeast(…,
+ *  securePoints)` still floors it at whatever is banked, since a target
+ *  removed from the event after points were scored on it must not shrink the
+ *  ceiling below the banked amount. */
 export function maxPointsAcrossModules(input: ProfileModuleInput, securePoints: number): number {
   const quiz = unionDenominators(input.quiz?.questions ?? [], input.quiz?.viewer.answered ?? {});
   const classic = unionDenominators(input.classic?.challenges ?? [], input.classic?.viewer.solved ?? {});
   const ai = unionDenominators(input.ai?.challenges ?? [], input.ai?.viewer.solved ?? {});
-  const secure = atLeast(input.profile?.maxPoints ?? 0, securePoints);
+  const secure = input.secureDev ? atLeast(enabledTotalMaxPoints, securePoints) : 0;
   return secure + quiz.max + classic.max + ai.max;
 }
