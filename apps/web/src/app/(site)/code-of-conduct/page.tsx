@@ -63,7 +63,7 @@ export default async function CodeOfConductPage() {
               governs this competition as an OWASP activity, and applies to the CTF Discord
               {secureDev ? (
                 <>
-                  , the {org} GitHub organization, and any pull requests or
+                  {org ? `, the ${org} GitHub organization,` : ", GitHub,"} and any pull requests or
                   reviews you take part in.
                 </>
               ) : (
