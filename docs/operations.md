@@ -654,7 +654,11 @@ demo seed and the master reset.
 
 Every settings change is recorded in an audit log (who, when, what changed)
 alongside the setting itself; the log (`ctf:admin:audit`) keeps the newest
-**500** entries and drops older ones automatically. **Disruptive controls
+**500** entries and drops older ones automatically. The five Identity fields
+are the exception to "what changed": the audit line names the field and
+whether it was set or cleared, never the value — `eventDiscord` can carry an
+invite/join token and `eventContact` is personal data, so neither is fit for
+an admin-visible log. **Disruptive controls
 prompt for confirmation**: the freeze and team-registration toggles, each
 module's Enable/Disable switch, **removing an admin** on the Admins tab, and
 the demo-mode **Seed demo data** button ask a one-click "are you sure?"; the

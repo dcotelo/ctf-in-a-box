@@ -640,6 +640,43 @@ describe("event identity fields (issue #386)", () => {
     expect(strArgs).toContain("org@example.org");
     expect(strArgs).toContain("https://discord.gg/x");
   });
+
+  // CodeRabbit round 2: eventDiscord can carry an invite/join token, and the
+  // audit line used to serialise the raw value into an admin-visible log.
+  // The stored HSET pair still needs the real value (asserted above) — only
+  // the audit JSON must be redacted.
+  it("never puts the eventDiscord value (or its token) into the audit record, and marks it set", async () => {
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-09-10T00:00:00Z"]);
+    await updateAdminSettings({ eventDiscord: "https://discord.gg/SECRETTOKEN" }, "alice");
+    const args = mocks.upstashEval.mock.calls[0][2];
+    // ARGV[3] is the audit JSON line (see UPDATE_SCRIPT's own ARGV layout
+    // comment): [1]=updatedBy [2]=updatedAt [3]=auditLine ...
+    const auditLine = String(args[2]);
+    expect(auditLine).not.toContain("SECRETTOKEN");
+    expect(auditLine).not.toContain("https://discord.gg/SECRETTOKEN");
+    const audit = JSON.parse(auditLine);
+    expect(audit.changed).toEqual({ eventDiscord: "set" });
+    // The value itself is still written to the hash — only the audit is redacted.
+    const strArgs = args.map(String);
+    expect(strArgs).toContain("https://discord.gg/SECRETTOKEN");
+  });
+
+  it("marks a cleared identity field as \"cleared\" in the audit record, for all five keys", async () => {
+    mocks.upstashEval.mockResolvedValue(["updatedBy", "alice", "updatedAt", "2026-09-10T00:00:00Z"]);
+    await updateAdminSettings(
+      { eventName: "", eventTheme: "", eventLocation: "", eventContact: "", eventDiscord: "" },
+      "alice",
+    );
+    const auditLine = String(mocks.upstashEval.mock.calls[0][2][2]);
+    const audit = JSON.parse(auditLine);
+    expect(audit.changed).toEqual({
+      eventName: "cleared",
+      eventTheme: "cleared",
+      eventLocation: "cleared",
+      eventContact: "cleared",
+      eventDiscord: "cleared",
+    });
+  });
 });
 
 // --- teamMaxMembers validation (issue #99) ---------------------------------

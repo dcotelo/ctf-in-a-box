@@ -568,14 +568,21 @@ export async function updateAdminSettings(patch: SettingsPatch, actor: string): 
       // Event identity (issue #386). Validation lives in event-identity.ts so
       // the Event tab can share the limits; "" clears (HDEL) — the default is
       // what blank restores, exactly like a module title override.
+      //
+      // The audit line never carries the value itself, only a redacted
+      // marker (CodeRabbit round 2): eventDiscord can embed an invite/join
+      // token in its URL, and eventContact is PII — recording either verbatim
+      // in an admin-visible log persists a secret/PII where "who changed
+      // what" only needs the field name. All five identity keys use the same
+      // marker for uniformity rather than special-casing just those two.
       const check = checkEventIdentityValue(k, v);
       if (!check.ok) throw new AdminValidationError(k, check.message);
       if (check.value === "") {
         dels.push(k);
-        changed[k] = "" as unknown as boolean;
+        changed[k] = "cleared" as unknown as boolean;
       } else {
         fields.push(k, check.value);
-        changed[k] = check.value as unknown as boolean;
+        changed[k] = "set" as unknown as boolean;
       }
     } else if (MODULE_FIELD_RE.test(k)) {
       const [, which, id] = MODULE_FIELD_RE.exec(k)!;
