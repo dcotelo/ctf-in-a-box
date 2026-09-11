@@ -69,6 +69,7 @@ their **Status** line; the record itself is never rewritten.
 - [ADR 51 — Base images are digest-pinned, and dependabot is what keeps the pin honest](#adr-51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)
 - [ADR 52 — Modules are switched at runtime; Secure Development is configured at setup](#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)
 - [ADR 53 — ai launch tokens are asymmetric; event signatures stay symmetric](#adr-53-ai-launch-tokens-are-asymmetric-event-signatures-stay-symmetric)
+- [ADR 55 — Configuration v2: `.env` bootstrap, `/admin` runtime, no event.yaml](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml)
 
 ## ADR 1. Keep the GitHub fork/PR/Action flow — it is the pedagogy
 
@@ -288,7 +289,7 @@ disables the forks' inherited workflows automatically.
 
 ## ADR 10. `event.yaml`'s module namespace; deliberate, not dynamic, registration
 
-**Status.** Accepted; amended by [ADR 24](#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one) and [ADR 31](#adr-31-one-hint-switch-capability-split-from-policy).
+**Status.** Superseded 2026-09-11 by [ADR 55](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml) — `event.yaml` is deleted, so the module namespace this ADR governs no longer exists. What survives is the half it was really about: registration stays **deliberate and static** (the `ModuleId` registry in `apps/web/src/lib/modules.ts`, plus the duplicated target lists `scripts/check-module-registries.mjs` compares), and enablement is a runtime `/admin` setting. Previously: accepted; amended by [ADR 24](#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one) and [ADR 31](#adr-31-one-hint-switch-capability-split-from-policy). The body below is kept as the record of the decision as it stood.
 
 > **Amended by [#24](#adr-24-tolerating-a-missing-module-vs-rejecting-an-unknown-one).**
 > This decision describes **two** enumerations to extend for a new module. There
@@ -367,7 +368,7 @@ this is a deliberate, tracked fork, not an untracked copy-paste.
 
 ## ADR 12. Build-time config generation over runtime config
 
-**Status.** Accepted; amended by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): the event's identity (name, tagline, location, contact e-mail, Discord invite) and, as of PR 2, which Secure Development targets an event serves, both moved to runtime `/admin` settings; only dates, the fork org (`github.org`) and the bootstrap `admins` allowlist are still generated at build time.
+**Status.** Superseded 2026-09-11 by [ADR 55](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml) — nothing is generated at build time any more. The generator, the build-arg and the generated module are deleted; the last three fields this ADR still claimed (dates, the fork org and the admins allowlist) became the scoring schedule in `ctf:admin:settings`, `GITHUB_ORG` in `.env`, and `ADMIN_LOGINS` in `.env` respectively. The body below is kept as the record of the decision as it stood, including its earlier amendments.
 
 **Context.** Event identity (name, dates, targets, branding) needs to
 reach the app somehow. A runtime option (read `event.yaml` on every
@@ -397,12 +398,12 @@ scoped to those fields only (see the amendment above). The tradeoff for
 what remains baked is unchanged: changing `event.yaml` requires an image
 rebuild (`docker compose --profile app build app`), not just a restart or a
 config hot-reload; `docs/hosting.md` calls this out directly under
-[Rebuilding the app after a config change](hosting.md#rebuilding-the-app-after-a-config-change)
+[Changing a setting after the stack is running](hosting.md#changing-a-setting-after-the-stack-is-running)
 so it isn't a surprise.
 
 ## ADR 13. Closed `AppId` union; config selects a subset; unknown values fail the build
 
-**Status.** Accepted; amended by [#386](https://github.com/dcotelo/owasp-ctf/issues/386) (config v2 PR 2) — *selection* moved to runtime; the closed union itself is unchanged.
+**Status.** Accepted; amended 2026-09-11 by [ADR 55](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml) — *selection* moved to runtime and the config file that used to do the selecting is gone, but **this ADR still stands**: the closed six-member `AppId` union is unchanged, it is still the type every reader and the catalogue share, and an unknown target id still fails. What changed is only where a subset is chosen — `secureDevTargets` in `ctf:admin:settings`, validated against that same union by `secure-dev-targets.ts`, rather than a build-time reader.
 
 **Context.** The target catalogue (`juice-shop`, `dvwa`, `webgoat`,
 `securityshepherd`, `vulnerableapp`, `vampi`) is fixed for
@@ -909,7 +910,7 @@ situations are not the same failure. A module this build knows about but
 that isn't configured for this event is a legitimate config choice — nothing
 for `sync` to poll. A module key this build has never heard of is a typo or
 a vertical that was never wired into this reader — the deliberate-
-registration model in [docs/modules.md §1.2](modules.md#section-1-module-identity--config-block)
+registration model in [docs/modules.md §1.2](modules.md#section-1-module-identity--registration)
 means a new vertical is always a code change, never config alone, so an
 unrecognized key can't mean "a module I haven't heard of, ignore it."
 
@@ -1070,7 +1071,7 @@ gaining a second code path for "no backend at all."
 
 ## ADR 26. Compose profiles follow the enabled modules
 
-**Status.** Accepted.
+**Status.** Superseded 2026-09-11 by [ADR 55](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml) — the profile is named `secdev` now, not `poll`, and it follows **`SCORE_IMAGE`** rather than a module list in a config file: whoever brings the stack up adds `--profile secdev` iff `SCORE_IMAGE` is non-empty, which `scripts/dev-stack` and `deploy/fly/render-compose.sh` do for you. Every conclusion below survives the rename unchanged — `scorer` carries both ingest profiles and `sync` only the poll one, no Secure Development service gets the profile-less treatment, and `app` never declares a `depends_on` on a profiled service. The body below is kept as the record of the decision as it stood.
 
 **Context.** `docker-compose.yml` put `sync` behind `profiles: ["poll"]` but
 left `scorer` in the default (profile-less) set, and `app` carried
@@ -2267,7 +2268,7 @@ one module, no per-module settings, targets as a comma-separated string.
 
 ## ADR 44. Runtime admin grants, with the baked list as the recovery path
 
-**Status.** Accepted. Implements issue #147.
+**Status.** Superseded 2026-09-11 by [ADR 55](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml) — there is no baked list any more: the bootstrap set is `ADMIN_LOGINS` in `.env`, read at process start. The decision's substance is unchanged and deliberately preserved: runtime grants stack on top of the bootstrap set, a bootstrap admin can never be revoked from the panel, and `requireAdmin` checks the bootstrap list first without touching Redis and fails closed. Only the cost of changing that set moved, from a rebuild to a restart. Previously: accepted, implementing issue #147.
 
 **Context.** `admins` was baked into the app image at build time from
 `event.yaml`. Adding a co-organizer meant editing that file, rebuilding the
@@ -2811,7 +2812,7 @@ anyone benefits from.
 
 ## ADR 52. Modules are switched at runtime; Secure Development is configured at setup
 
-**Status.** Accepted; amended by [#386](https://github.com/dcotelo/owasp-ctf/issues/386): Secure Development is now switched at runtime like the other modules, refused only when the deployment has no scorer image; the baked set is replaced by a `SCORE_IMAGE`-derived default; an empty set is legal. ADR 55 will record the whole config-v2 decision when `event.yaml` is retired.
+**Status.** Superseded 2026-09-11 by [ADR 55](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml), which records the whole config-v2 decision now that `event.yaml` is retired. This ADR's title is no longer true in its second half: Secure Development is switched at runtime like the other three modules, refused only when the deployment has no scorer image, and the only setup-time fact left about it is `SCORE_IMAGE` itself. The seed-and-fallback is the `SCORE_IMAGE`-derived default rather than a baked set, and an empty set is legal. The body below is kept as the record of the decision as it stood.
 
 **Context.** Module *identity* has been runtime since the title/blurb overrides
 landed, but module *enablement* was baked: `event.yaml`'s `modules:` compiled
@@ -3116,3 +3117,129 @@ control. `srh` verifies against **CAStore**'s embedded Mozilla bundle rather
 than the OS trust store — which carries Amazon's roots, so ElastiCache
 verifies, but also means the trust anchors are frozen at the pinned image digest
 and mounting a CA into the container does nothing.
+
+## ADR 55. Configuration v2: `.env` bootstrap, `/admin` runtime, no event.yaml
+
+**Status.** Accepted. Supersedes [ADR 10](#adr-10-eventyamls-module-namespace-deliberate-not-dynamic-registration), [ADR 12](#adr-12-build-time-config-generation-over-runtime-config), [ADR 26](#adr-26-compose-profiles-follow-the-enabled-modules), [ADR 44](#adr-44-runtime-admin-grants-with-the-baked-list-as-the-recovery-path) and [ADR 52](#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup); amends [ADR 13](#adr-13-closed-appid-union-config-selects-a-subset-unknown-values-fail-the-build). Implements issue [#386](https://github.com/dcotelo/owasp-ctf/issues/386); [ADR 43](#adr-43-one-url-and-it-lives-in-env-not-eventyaml) is the precedent.
+
+**Context.** Event configuration lived in three places at once: a committed
+`event.yaml` baked into the `app` image through the `EVENT_CONFIG_B64`
+build-arg (ADR 12) and read separately by `sync` and `ctf-setup.sh`; `.env`,
+for secrets, `EVENT_URL` (ADR 43) and `SCORE_IMAGE`; and the
+`ctf:admin:settings` hash, the runtime override layer (ADR 19) that had
+already taken over module enablement (ADR 52), the event's identity, and the
+Secure Development target list. Three planes, two of which claimed the same
+facts.
+
+The 2026-09-10 end-to-end pass on the live box named the cost:
+
+- **A build that forgot the arg shipped a broken event, silently.** No
+  `EVENT_CONFIG_B64` meant an empty `admins` list, so `/admin` 403'd for
+  everyone — including the organizer — with nothing in any log saying why.
+  It had its own entry in `docs/troubleshooting.md`, which is the tell: a
+  configuration mechanism whose main documented behaviour is its own failure
+  mode.
+- **Every branding or module change was a rebuild.** Renaming an event, or
+  turning a board on, meant `docker compose build app` and a redeploy, at
+  exactly the moment an organizer can least afford one.
+- **Two planes disagreed, in public.** `event.yaml` said
+  `score_ingest: push` while the stack ran poll; #372/#374 answered with a
+  drift *warning* rather than removing the duplicate declaration. The same
+  copy-of-a-copy failure one layer up (`.env.fly` drifting from `.env`) broke
+  sign-in and sync on the live box (#381).
+- **The organizer could not tell which plane won.** "Should we drop module
+  enablement on `event.yaml`?" is not a question a well-drawn configuration
+  model provokes.
+
+**Decision.** Delete `event.yaml`. Two planes, two owners, no overlap:
+
+| Plane | Where | Owner | Contents |
+|---|---|---|---|
+| **Bootstrap** — what must be true before the app can answer a request | `.env` | the wizard, or the machine's operator | `GITHUB_ORG`, `ADMIN_LOGINS`, `SCORE_IMAGE`, `EVENT_URL`, and the secrets |
+| **Runtime** — everything an organizer changes while the event runs | `ctf:admin:settings` | `/admin`, live | the enabled module set, the Secure Development target list, the event's identity, the scoring schedule and freeze, the hint policy, the team caps, all module content |
+
+Nothing sits between them: no file, and no image that carries a configured
+value. Concretely —
+
+- **No image takes a configuration build-arg.** `EVENT_CONFIG_B64`,
+  `EVENT_CONFIG`, the `apps/web/Dockerfile` arg,
+  `apps/web/scripts/generate-event-config.mjs` and its generated
+  `event-config.generated.ts` are all gone, along with `event.yaml` and
+  `event.yaml.example`. The app image is the same image on every box.
+- **`ADMIN_LOGINS` replaces the baked allowlist**, parsed at process start by
+  `lib/bootstrap-env.ts` (a `server-only` module — the list must never reach a
+  client bundle) and failing **closed**: empty means nobody is an admin, never
+  "no allowlist, let the runtime grants decide".
+- **`GITHUB_ORG` replaces `github.org`**, and its two readers deliberately
+  disagree: the app degrades gracefully to a bare repo name where a fork link
+  would go, while `sync`'s `loadConfig` throws at startup naming the key,
+  because for a poller a missing org is a misconfiguration, not "nothing to
+  poll".
+- **`SCORE_IMAGE` becomes the Secure Development switch.** Non-empty means the
+  event runs that module: it selects the compose profile, it is the default
+  module set on a first boot, and it gates the admin toggle. Empty means the
+  module's containers never exist and nothing is enabled until an organizer
+  switches something on.
+- **Registration stays static code; only *selection* moved.** The `ModuleId`
+  registry in `apps/web/src/lib/modules.ts`, the closed `AppId` union in
+  `apps.ts`, `sync/src/config.js`'s `TARGETS` and `scorer/src/targets.js` are
+  unchanged, and `scripts/check-module-registries.mjs` still fails when the
+  three target lists disagree. That is the half of ADR 10 and ADR 13 this
+  decision keeps.
+- **Provision all six targets, always.** `ctf-setup.sh org` no longer reads a
+  subset from anywhere; the panel picks the live one.
+- **The wizard writes `.env` and nothing else.** Its yaml writer, its
+  `KNOWN_MODULES` mirror, its `--targets` flag and its "which modules" question
+  are gone; step 3 is three keys.
+
+**Consequences.**
+
+- **Compose profiles are derived, not declared.** `poll` is renamed `secdev`
+  (`scorer` carries `["secdev", "push"]`, `sync` `["secdev"]`), and
+  `scripts/dev-stack` and `deploy/fly/render-compose.sh` add `--profile secdev`
+  **iff `SCORE_IMAGE` is non-empty**. That is the one place "does this event
+  run Secure Development" is answered at `up` time, and it is derived rather
+  than a second knob — the direct lesson of the `score_ingest` drift.
+  ADR 26's conclusion survives verbatim (never give a Secure Development
+  service the profile-less treatment; never add a `depends_on` from `app` to a
+  profiled service); only the profile's *name* and its *source* changed.
+  `push` is untouched here — its deprecation is
+  [#377](https://github.com/dcotelo/owasp-ctf/issues/377)'s decision to make.
+- **Both deploy paths carry the two keys as runtime environment and bake
+  nothing.** Fly's `deploy.sh init --refresh` refreshes `GITHUB_ORG` and
+  `ADMIN_LOGINS` alongside the other external credentials (#381), and AWS's
+  `event_yaml_b64` variable is replaced by `github_org`/`admin_logins`
+  mirrored into the app task definition. An existing Fly box upgrades with
+  `init --refresh`, not a rebuild.
+- **ADR 44's recovery path is intact, and slightly cheaper.** Runtime grants
+  still stack on top of the bootstrap list and still cannot remove an entry
+  from it; the list simply comes from the environment now, so revoking a
+  bootstrap admin is an `.env` edit and a restart rather than a rebuild. The
+  Admins tab's badge says `.env` · restart to change.
+- **The `--dry-run` narration is thinner, and that is accepted.** With no
+  config file to read, `ctf-setup.sh --dry-run` can no longer narrate an
+  event's intended module set before anything exists; it plans against the six
+  targets and the three `.env` keys. What it gains is that a dry run can no
+  longer describe an event the running box does not actually have.
+- **A first boot is emptier.** With Secure Development the only default — and
+  nothing at all without `SCORE_IMAGE` — the landing page must render an
+  explicit no-boards state pointing at `/admin` rather than an empty grid, and
+  the wizard's closing message says which modules are on. The follow-on
+  first-run checklist in `/admin` (#386 PR 4) is what replaces the guidance the
+  example config file used to give.
+- **Identity is read per request.** `getSite()` is exactly the runtime
+  config-fetch path ADR 12 set out to avoid; it is one request-cached read of a
+  hash the pause check already pays for, and every page is dynamic anyway
+  (ADR 21).
+- **No compatibility shim, by decision.** There is no detection of the old file
+  or the old env var, and no migration. An existing box gains two `.env` keys
+  and moves everything else into `/admin`.
+
+**Alternatives rejected.** Keeping `event.yaml` as a *bootstrap-only* file
+(name plus admins) was the smallest change, and it keeps the exact failure this
+decision exists to remove: a second place to declare a fact, read at a
+different time from the place organizers actually edit. Reading `event.yaml` at
+runtime instead of baking it would fix the rebuild cost but not the two-planes
+problem, and it puts a file mount on the request path — the concern ADR 12 was
+right about. Moving the bootstrap keys into Redis as well was rejected because
+the admin allowlist cannot be stored behind the thing it guards access to.
