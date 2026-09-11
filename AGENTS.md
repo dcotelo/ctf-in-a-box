@@ -190,7 +190,12 @@ eligible PR, read the CodeRabbit check before you say anything to it: if a
 pass is running or has completed for that commit, do not trigger another — a
 manual `review` on top of an automatic one is a duplicate that burns the
 allowance; only when it reads that `Review skipped` status do you trigger the
-review, with exactly one top-level `@coderabbitai review` comment. A review,
+review, with exactly one top-level `@coderabbitai review` comment. One more
+reason a push can go unreviewed: `auto_pause_after_reviewed_commits` is unset
+in `.coderabbit.yaml`, so CodeRabbit's default applies and automatic reviews
+pause after five reviewed commits on a PR (`0` would disable the pause; the
+organization-level setting may change the number) — after that point every
+further push needs the same single `@coderabbitai review`. A review,
 however it started, is *incremental* — it reads only
 the commits pushed since its last pass, re-verifies its open threads, and
 resolves the ones the push addressed; no reply is needed on those. Every
