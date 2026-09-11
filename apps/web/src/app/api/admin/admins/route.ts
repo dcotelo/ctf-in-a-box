@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { requireAdmin, isEnvAdmin, listEnvAdmins } from "@/lib/admin-auth";
-import { AdminValidationError, addStoredAdmin, listStoredAdmins, removeStoredAdmin } from "@/lib/admin-store";
+import {
+  AdminValidationError,
+  addStoredAdmin,
+  adminErrorLabel,
+  listStoredAdmins,
+  removeStoredAdmin,
+} from "@/lib/admin-store";
 
 /**
  * Runtime admin management (issue #147). GET lists, POST grants, DELETE
@@ -33,7 +39,7 @@ export async function GET(request: Request) {
   try {
     return NextResponse.json(payload(listEnvAdmins(), await listStoredAdmins()));
   } catch (err) {
-    console.error("[admin/admins] list failed", err);
+    console.error("[admin/admins] list failed", adminErrorLabel(err));
     return NextResponse.json({ error: "unavailable" }, { status: 503 });
   }
 }
@@ -59,7 +65,7 @@ export async function POST(request: Request) {
     if (err instanceof AdminValidationError) {
       return NextResponse.json({ error: err.message, field: err.field }, { status: 400 });
     }
-    console.error("[admin/admins] add failed", err);
+    console.error("[admin/admins] add failed", adminErrorLabel(err));
     return NextResponse.json({ error: "unavailable" }, { status: 503 });
   }
 }
@@ -101,7 +107,7 @@ export async function DELETE(request: Request) {
     if (err instanceof AdminValidationError) {
       return NextResponse.json({ error: err.message, field: err.field }, { status: 400 });
     }
-    console.error("[admin/admins] remove failed", err);
+    console.error("[admin/admins] remove failed", adminErrorLabel(err));
     return NextResponse.json({ error: "unavailable" }, { status: 503 });
   }
 }
