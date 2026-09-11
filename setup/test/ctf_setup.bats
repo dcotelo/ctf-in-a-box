@@ -50,7 +50,7 @@ EOF
   # either — an organizer who MEANT to run Secure Development and forgot the
   # image would otherwise read "nothing to do" as "done".
   _env_fixture_no_secdev
-  run env -u SCORE_IMAGE bash "$SCRIPT" org --dry-run
+  run bash "$SCRIPT" org --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF -- "does not run Secure Development"
   echo "$output" | grep -qF -- "docs/scorer.md"
@@ -58,6 +58,65 @@ EOF
   [ -z "$(echo "$output" | grep -F -- "gh repo fork")" ]
   [ -z "$(echo "$output" | grep -F -- "docker pull")" ]
   [[ "$output" != *"ghcr.io/owasp-ctf/score"* ]]
+}
+
+# The switch is the value the BOX carries, not one an operator exported: an
+# exported SCORE_IMAGE overrides only the image to mirror (a one-off retag),
+# because docker compose reads the file to decide which services exist at
+# all. An env var that could flip the switch would have `org` forking six
+# repos for an event whose stack runs no scorer.
+@test "org: an exported SCORE_IMAGE does not turn Secure Development on for an env file that says otherwise" {
+  _env_fixture_no_secdev
+  run env SCORE_IMAGE=ghcr.io/exported/score:v9 bash "$SCRIPT" org --dry-run
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F -- "gh repo fork")" ]
+  [ -z "$(echo "$output" | grep -F -- "docker pull")" ]
+  echo "$output" | grep -qF -- "does not run Secure Development"
+}
+
+# A missing env file is not an app-only event. Reading every key as empty
+# made `teardown` print "nothing to tear down" and exit 0 on a box whose six
+# forks were all still there — the most expensive possible way to be wrong.
+@test "teardown refuses a missing env file instead of reading it as 'no Secure Development'" {
+  rm -f .env
+  run bash "$SCRIPT" teardown --dry-run
+  [ -z "$(printf '%s' "$output" | grep -F 'nothing to tear down')" ]
+  echo "$output" | grep -qF -- ".env not found"
+  [ "$status" -ne 0 ]
+}
+
+@test "doctor refuses a missing env file, naming the file" {
+  rm -f .env
+  run bash "$SCRIPT" doctor
+  [ -z "$(printf '%s' "$output" | grep -F 'no provisioned content')" ]
+  echo "$output" | grep -qF -- "not found"
+  [ "$status" -ne 0 ]
+}
+
+@test "org, render and upgrade refuse a missing env file too" {
+  rm -f .env
+  for c in org render upgrade; do
+    run bash "$SCRIPT" "$c" --dry-run
+    echo "$c: $output"
+    [ "$status" -ne 0 ]
+    echo "$output" | grep -qF -- "not found"
+  done
+  # `check` and `secrets` must NOT gain the guard: one inspects the local
+  # toolchain, the other CREATES the file.
+  run bash "$SCRIPT" secrets --out .env.guard.test
+  [ "$status" -eq 0 ]
+}
+
+# docker compose's .env reader ignores a trailing `# comment`, and organizers
+# annotate this file. A value read as "myorg  # the disposable one" would be
+# forked into as a repo owner of that name and printed as the org doctor
+# inspected.
+@test "env_val strips a trailing comment and surrounding whitespace" {
+  printf 'GITHUB_ORG=test-event-org   # the disposable one\nADMIN_LOGINS= organizer \nSCORE_IMAGE=ghcr.io/fixture/score:latest\n' > .env
+  run bash "$SCRIPT" org --dry-run
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F 'disposable one')" ]
+  echo "$output" | grep -qF -- "gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"
 }
 
 @test "org: a missing GITHUB_ORG fails with a clean message naming the key" {
@@ -158,28 +217,28 @@ EOF
 
 @test "org: an app-only event (no SCORE_IMAGE) provisions nothing and succeeds" {
   _env_fixture_no_secdev
-  run env -u SCORE_IMAGE bash "$SCRIPT" org --dry-run
+  run bash "$SCRIPT" org --dry-run
   [ "$status" -eq 0 ]
   [ -z "$(printf '%s' "$output" | grep -F 'gh repo fork')" ]
 }
 
 @test "render: an app-only event (no SCORE_IMAGE) writes nothing and succeeds" {
   _env_fixture_no_secdev
-  run env -u SCORE_IMAGE bash "$SCRIPT" render
+  run bash "$SCRIPT" render
   [ "$status" -eq 0 ]
   [ ! -d dist ]
 }
 
 @test "teardown: an app-only event (no SCORE_IMAGE) archives nothing and succeeds" {
   _env_fixture_no_secdev
-  run env -u SCORE_IMAGE bash "$SCRIPT" teardown --dry-run
+  run bash "$SCRIPT" teardown --dry-run
   [ "$status" -eq 0 ]
   [ -z "$(printf '%s' "$output" | grep -F 'gh repo archive')" ]
 }
 
 @test "doctor: an app-only event (no SCORE_IMAGE) reports no provisioned content" {
   _env_fixture_no_secdev
-  run env -u SCORE_IMAGE bash "$SCRIPT" doctor --dry-run
+  run bash "$SCRIPT" doctor --dry-run
   [ "$status" -eq 0 ]
   printf '%s' "$output" | grep -qi 'no .*content'
 }
@@ -451,19 +510,55 @@ _stub_prereqs() {
   [ -z "$(echo "$output" | grep -F 'usage: ctf-setup.sh')" ]
 }
 
-@test "wizard asks the event basics inline when GITHUB_ORG is unset, without dead-ending" {
+@test "wizard asks the event basics inline when a bootstrap key is missing, rather than halting" {
   _stub_prereqs
-  printf 'ADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\n' > .env
-  # No org -> the wizard must PROMPT inline (not halt): narrate the questions
-  # under --dry-run and continue past step 3 to step 4 (proves no early exit).
+  rm -f .env
+  # Nothing to resume from -> the wizard must PROMPT inline (not tell the
+  # operator to go edit a file and come back). Under --dry-run every answer
+  # is its default and `gh api user` is not called, so the run ends on the
+  # empty-admins refusal — what this pins is that the questions are ASKED,
+  # in this file, and that the event's identity/modules/schedule are not
+  # among them (config v2 #386: those are runtime /admin settings).
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
-  [ "$status" -eq 0 ]
   echo "$output" | grep -q "Answer a few questions to write"
   echo "$output" | grep -q "GitHub org (disposable per-event org)"
-  echo "$output" | grep -q "4/9  Scorer image"
-  # Config v2 (#386): the event's identity, its module set and its schedule are
-  # runtime /admin settings — the wizard asks for none of them and says so.
+  echo "$output" | grep -q "Admin GitHub login(s)"
+  [ -z "$(echo "$output" | grep -F 'Event name')" ]
+  [ -z "$(echo "$output" | grep -F 'Event start')" ]
   echo "$output" | grep -qF "/admin"
+}
+
+# M10 / the app-only event: GITHUB_ORG is required only when Secure
+# Development runs (spec section 1), so an event that runs none has no org —
+# and must not be re-asked the whole of step 3 on every single re-run.
+@test "wizard: an app-only .env with no org is complete, not re-asked" {
+  _stub_prereqs
+  printf 'ADMIN_LOGINS=organizer\nSCORE_IMAGE=\n' > .env
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F 'Answer a few questions to write')" ]
+  echo "$output" | grep -qF "✅ .env (org: <none>, admins: organizer)"
+}
+
+# C1: an app-only event used to DEAD-END here. Step 7 asked GitHub about an
+# org that does not exist (GITHUB_ORG is empty), printed "create it, then
+# re-run" and exited 0 — so steps 8 (bring-up) and 9 never ran, and the
+# organizer was sent to create an org their event has no use for. NOT
+# --dry-run, because the exit was in the real path's org probe.
+@test "wizard: an app-only event skips the org step and still reaches the bring-up" {
+  _stub_prereqs
+  # gh is logged in (so step 1 passes) but reports every API call as a
+  # failure — the "org does not exist" shape that produced the dead-end.
+  printf '#!/bin/sh\n[ "$1" = auth ] && exit 0\nexit 1\n' > "$BATS_TEST_TMPDIR/stubbin/gh"
+  chmod +x "$BATS_TEST_TMPDIR/stubbin/gh"
+  printf 'GITHUB_ORG=\nADMIN_LOGINS=organizer\nSCORE_IMAGE=\n' > .env
+  run env CTF_NO_BROWSER=1 PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F "Still can't see org")" ]
+  echo "$output" | grep -qF "7/9  Event org"
+  echo "$output" | grep -qF "does not run Secure Development (no org to fork into)"
+  echo "$output" | grep -qF "9/9  Verify"
+  echo "$output" | grep -qF "8/9  Bring the containers up"
 }
 
 # The one value the wizard cannot default on a fresh box: `gh api user` is a
@@ -519,7 +614,7 @@ _stub_prereqs() {
   # but it says there is nothing to verify rather than that it would run
   # doctor (review finding on #376: the dry-run path must not claim a
   # verification the real path would skip).
-  run env -u SCORE_IMAGE PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -q '9/9  Verify'
   echo "$output" | grep -qF 'nothing provisioned to verify'
@@ -533,7 +628,7 @@ _stub_prereqs() {
   # An app-only event has no scorer image to pull and nothing to poll, so the
   # bring-up it prints must NOT ask for the score-ingest profiles — those
   # carry secure-development's sync + scorer (docker-compose.yml, ADR 26).
-  run env -u SCORE_IMAGE PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
   [ -z "$(echo "$output" | grep -F -- '--profile poll')" ]
   [ -z "$(echo "$output" | grep -F -- '--profile push')" ]
@@ -568,12 +663,63 @@ _stub_prereqs() {
 
 @test "wizard asks whether to run Secure Development, not which modules" {
   _stub_prereqs
-  printf 'ADMIN_LOGINS=organizer\n' > .env
-  run env -u SCORE_IMAGE PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
-  [ "$status" -eq 0 ]
+  rm -f .env
+  printf 'ADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\n' > .env
+  # The org is missing, so step 3 asks. Under --dry-run the Secure
+  # Development question takes its DEFAULT — Y, because this .env carries a
+  # SCORE_IMAGE — and the refusal that follows (Secure Development with no
+  # org to fork into) is the observable proof of it: with the answer forced
+  # to "no", as ask_yn does for every other dry-run prompt, there would be
+  # nothing to refuse and the run would exit 0.
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ -z "$(echo "$output" | grep -F 'Modules to start with')" ]
   [ -z "$(echo "$output" | grep -F 'Targets — subset of')" ]
   echo "$output" | grep -qF 'Run Secure Development'
+  echo "$output" | grep -qF 'GITHUB_ORG cannot be empty'
+  [ "$status" -ne 0 ]
+}
+
+# I3: `ask_yn` hard-answers "no" under --dry-run so a rehearsal cannot
+# mutate anything, which made the whole rehearsal describe an event with
+# Secure Development OFF for a box whose env file has SCORE_IMAGE set — the
+# opposite of what the real run does.
+@test "wizard --dry-run narrates the Secure Development steps for an .env that has SCORE_IMAGE" {
+  _stub_prereqs
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F 'does not run Secure Development')" ]
+  echo "$output" | grep -qF '4/9  Scorer image'
+  echo "$output" | grep -qF '5/9  Sync GitHub App'
+  echo "$output" | grep -qF '7/9  Event org (test-event-org)'
+  echo "$output" | grep -qF 'docker compose --profile poll --profile app up -d --build'
+}
+
+@test "wizard: an app-only event is never asked for score ingest" {
+  _stub_prereqs
+  # Nothing to ingest, so the prompt never appears and the template value in
+  # .env is left alone — writing one would suggest a switch that does
+  # nothing for this event.
+  printf 'ADMIN_LOGINS=organizer\nSCORE_IMAGE=\n' > .env
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F 'SCORE_INGEST=')" ]
+  [ -z "$(echo "$output" | grep -F 'Score ingest')" ]
+}
+
+@test "valid_ingest accepts exactly poll or push, so a typo never reaches .env" {
+  # Review finding on #374: wiz_ask accepts any text, and SCORE_INGEST=pussh
+  # would have compose mount caddy/Caddyfile.pussh and fail the bring-up.
+  # The wizard re-asks until this says yes; the helper is what it asks.
+  ok() { bash -c 'CMD=__selftest source "$1"; valid_ingest "$2"' _ "$SCRIPT" "$1"; }
+  ok poll
+  ok push
+  # Rejections spelled with `if … return 1` rather than `! ok …`: a negated
+  # command that is not the test's last statement is errexit-exempt and would
+  # pass silently (AGENTS.md).
+  for bad in pussh Poll "" "poll push" "push;rm -rf /"; do
+    if ok "$bad"; then echo "accepted '$bad'"; return 1; fi
+  done
+  ok poll
 }
 
 @test "wizard: the closing summary names every target Secure Development provisions" {
@@ -593,7 +739,7 @@ _stub_prereqs() {
 @test "wizard: an .env with no SCORE_IMAGE skips the scorer image and poll App steps" {
   _stub_prereqs
   _env_fixture_no_secdev
-  run env -u SCORE_IMAGE PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
   [ -z "$(echo "$output" | grep -F 'build the scorer image')" ]
   [ -z "$(echo "$output" | grep -F 'App-creation form')" ]
@@ -628,9 +774,15 @@ _stub_prereqs() {
 @test "wizard --dry-run does not build or push the scorer image" {
   _stub_prereqs
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
-  # Step 4 narrates the build offer; --dry-run must not run docker at all.
-  echo "$output" | grep -qi "build"
+  [ "$status" -eq 0 ]
+  # The narration line itself, not just the word "build" — that also matches
+  # the `--build` in the compose command this run always prints, so a step 4
+  # that said nothing at all would have passed.
+  echo "$output" | grep -qF 'DRY-RUN: would check whether ghcr.io/fixture/score:latest is built locally and offer to build it (linux/amd64)'
+  # And nothing was actually built or pushed: no docker call was even made
+  # (the dedicated zero-calls test pins that), so neither line can appear.
   [ -z "$(echo "$output" | grep -F 'Successfully built')" ]
+  [ -z "$(echo "$output" | grep -F 'docker push')" ]
 }
 
 # --------------------------------------------------------------------------
@@ -640,7 +792,8 @@ _stub_prereqs() {
 # GitHub-App and OAuth prompts to reach one write.
 # --------------------------------------------------------------------------
 
-# Answers, in prompt order: org, admin logins, run-Secure-Development?, URL.
+# Answers, in prompt order: org, admin logins, run-Secure-Development?,
+# score ingest (only when that was yes), URL.
 # `gh` is stubbed to FAIL so the admin default is empty unless .env carries
 # one: with a real, logged-in gh on PATH (a developer's laptop) the "who is
 # running this?" default would silently answer for the test.
@@ -650,6 +803,56 @@ _basics() {
   chmod +x "$BATS_TEST_TMPDIR/nogh/gh"
   printf '%s\n' "$@" | env PATH="$BATS_TEST_TMPDIR/nogh:$PATH" \
     bash -c 'CMD=__selftest source "$1"; DRY_RUN=0; OUT=.env; wiz_event_basics .env' _ "$SCRIPT"
+}
+
+# The same step, rehearsed: every answer is its default and nothing is
+# written. The wizard's own --dry-run cannot reach past this step's refusals
+# on a half-filled file, so the narration is pinned here.
+_basics_dry() {
+  env PATH="$BATS_TEST_TMPDIR/nogh:$PATH" \
+    bash -c 'CMD=__selftest source "$1"; DRY_RUN=1; OUT=.env; wiz_event_basics .env' _ "$SCRIPT"
+}
+
+# Issue #372. The wizard asked "Score ingest (poll | push)" and wrote the
+# answer to the event config file only; .env kept the template
+# SCORE_INGEST=poll, and step 8 read .env to pick profiles — so "push"
+# produced a push label on a poll deployment with no warning. #374 sent the
+# answer to .env, which is now the ONLY copy of the switch there is, and
+# step 8 still reads it to choose the compose profile.
+@test "wiz_event_basics writes the score-ingest answer to the env file" {
+  : > .env
+  run _basics my-event-org alice y push ''
+  [ "$status" -eq 0 ]
+  grep -qx 'SCORE_INGEST=push' .env
+}
+
+@test "wiz_event_basics re-asks an invalid score ingest rather than writing it" {
+  # SCORE_INGEST becomes caddy/Caddyfile.${SCORE_INGEST} in compose, so
+  # "pussh" is a failed bring-up, not a label. The re-ask falls back to the
+  # default on the (piped) empty reply that follows.
+  : > .env
+  run _basics my-event-org alice y pussh '' ''
+  echo "$output" | grep -qF "must be exactly 'poll' or 'push'"
+  grep -qx 'SCORE_INGEST=poll' .env
+}
+
+@test "wiz_event_basics never writes SCORE_INGEST for an app-only event" {
+  # Nothing ingests scores, so a value here would suggest a switch that does
+  # nothing.
+  : > .env
+  run _basics my-event-org alice n ''
+  [ "$status" -eq 0 ]
+  [ -z "$(grep -F 'SCORE_INGEST' .env)" ]
+}
+
+@test "wiz_event_basics --dry-run narrates both writes and performs neither" {
+  _env_fixture
+  run _basics_dry
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'DRY-RUN: would write GITHUB_ORG, ADMIN_LOGINS and SCORE_IMAGE to .env'
+  echo "$output" | grep -qF 'would set SCORE_INGEST=poll in .env'
+  # The rehearsal must not have touched the file it narrated.
+  [ -z "$(grep -F 'SCORE_INGEST' .env)" ]
 }
 
 @test "wiz_event_basics defaults the admin list to the login running the wizard" {
@@ -668,7 +871,7 @@ _basics() {
 
 @test "wiz_event_basics writes the three bootstrap keys and nothing else new" {
   : > .env
-  run _basics my-event-org 'alice' y https://ctf.example.org
+  run _basics my-event-org 'alice' y poll https://ctf.example.org
   [ "$status" -eq 0 ]
   grep -qx 'GITHUB_ORG=my-event-org' .env
   grep -qx 'ADMIN_LOGINS=alice' .env
@@ -953,7 +1156,7 @@ template_version() {
 
 @test "upgrade on an app-only event (no SCORE_IMAGE) is a no-op, not an error" {
   _env_fixture_no_secdev
-  run env -u SCORE_IMAGE bash "$SCRIPT" upgrade --dry-run
+  run bash "$SCRIPT" upgrade --dry-run
   [ "$status" -eq 0 ]
   [ -z "$(printf '%s' "$output" | grep -F 'render ctf-score.yml')" ]
   [[ "$output" == *"does not run Secure Development"* ]]
@@ -1140,6 +1343,24 @@ EOF
   # the prerequisite step instead of probing. This boundary is one-sided by
   # nature — dry-run writes no store and renders no page, so there is no
   # "output side" to pair this command-issuance check with.
+  [ ! -s "$BATS_TEST_TMPDIR/tool.calls" ]
+}
+
+# The other half of the same boundary: an INCOMPLETE env file, so step 3 asks
+# its questions. That path reaches for `gh api user --jq .login` to default
+# the admin list — the one gh call the wizard makes outside the org steps —
+# and it must not run here either. (Its absence is why the run ends on the
+# empty-admins refusal, R3.)
+@test "wizard --dry-run issues no gh or docker calls with an incomplete env file either" {
+  _stub_prereqs
+  for c in gh docker; do
+    printf '#!/bin/sh\necho "%s $*" >> "%s/tool.calls"\nexit 0\n' "$c" "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/stubbin/$c"
+    chmod +x "$BATS_TEST_TMPDIR/stubbin/$c"
+  done
+  printf 'SCORE_INGEST=poll\n' > .env
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
+  echo "$output" | grep -q "Admin GitHub login(s)"
+  echo "$output" | grep -qF "at least one admin login is required"
   [ ! -s "$BATS_TEST_TMPDIR/tool.calls" ]
 }
 

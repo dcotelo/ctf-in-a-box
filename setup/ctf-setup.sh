@@ -349,6 +349,7 @@ do_step() {
 # Read-only per-step status. Non-manual missing steps make it exit non-zero so
 # CI / the future admin wizard can gate on a clean provision.
 cmd_doctor() {
+  require_env_file
   local org; org="$(env_val GITHUB_ORG)"
   [ -n "$org" ] || { echo "${OUT:-.env}: GITHUB_ORG missing — set it (or run the wizard) before inspecting an org" >&2; exit 1; }
   local rc=0 t id cell name want_v have
@@ -377,7 +378,7 @@ cmd_doctor() {
   # check — an empty table (headers only) would read as a failure rather than
   # the truth, which is that an app-only event has no fork-based content at
   # all. Report that plainly instead and stop.
-  if [ -z "$(score_image)" ]; then
+  if ! runs_secdev; then
     printf '%sℹ️  SCORE_IMAGE is empty in %s — this event does not run Secure Development: no provisioned content to check (nothing forked, nothing to inspect here).%s\n' \
       "$C_CYAN" "${OUT:-.env}" "$C_RESET"
     return 0
@@ -561,10 +562,34 @@ app_url_for() {
 # pipefail promotes that to the pipeline's status, and the command
 # substitution takes the whole script down — silently, with no output and exit
 # 1. `render` on a machine with no .env did exactly that.
+#
+# A trailing `# comment` and surrounding whitespace are stripped: organizers
+# annotate this file (`GITHUB_ORG=myorg  # the disposable one`), and the value
+# this script forks into, or prints as the org it inspected, must be the org
+# and not the org plus prose. docker compose's own .env reader does the same.
+# A `#` INSIDE the value is only stripped when whitespace precedes it, so a
+# token that legitimately contains one survives.
 env_val() {
-  local out="${OUT:-.env}"
+  local out="${OUT:-.env}" v
   [ -f "$out" ] || return 0
-  sed -n "s/^$1=//p" "$out" | tail -1
+  v="$(sed -n "s/^$1=//p" "$out" | tail -1)"
+  v="${v%%[[:space:]]#*}"
+  # Trim both ends without a subshell per call: bash 3.2-safe extglob-free.
+  v="${v#"${v%%[![:space:]]*}"}"
+  printf '%s' "${v%"${v##*[![:space:]]}"}"
+}
+
+# Refuse to act on an absent env file, for the commands whose whole input it
+# is. Without this, `env_val` reads every key as empty and a missing .env is
+# indistinguishable from an event that runs no Secure Development: `teardown`
+# would print "nothing to tear down" and exit 0 on a box whose forks are all
+# still there. NOT called by `check` (it inspects the local toolchain) or
+# `secrets` (it CREATES the file).
+require_env_file() {
+  [ -f "${OUT:-.env}" ] || {
+    echo "${OUT:-.env} not found — run 'ctf-setup.sh secrets' first (or point --out at your env file)" >&2
+    exit 1
+  }
 }
 
 # EVENT_URL, out of the env file — never out of an event config (ADR 43).
@@ -579,25 +604,43 @@ env_val() {
 # left sign-in working perfectly while every fork's score comment pointed
 # contestants at a dead leaderboard.
 env_url() {
-  env_val EVENT_URL | sed 's/[[:space:]]*$//'
+  env_val EVENT_URL
 }
 
-# The scorer image, and with it the answer to "does this event run Secure
-# Development?" — an environment variable wins over the env file, so a one-off
-# `SCORE_IMAGE=... ctf-setup.sh org` can mirror a different image without
-# editing anything.
+# The scorer image to mirror/build: an environment variable wins over the env
+# file, so a one-off `SCORE_IMAGE=... ctf-setup.sh org` can mirror a different
+# image without editing anything.
 #
-# NON-EMPTY is the whole switch (config v2, #386). Secure Development needs
-# containers that only exist when an image reference does, so the same value
-# that names the image also says whether there is anything to fork, mirror,
-# poll or verify. Empty is not an error: an event can run quiz, classic or ai
-# alone, and those are app-side only. Every caller spells the question
-# `[ -n "$(score_image)" ]` and says, when it is empty, that Secure
-# Development is off — never just "nothing to do".
+# This is the SOURCE, not the switch. Whether an event runs Secure
+# Development at all is `env_val SCORE_IMAGE` — the value the box itself
+# carries, the same one docker compose reads to decide which services exist —
+# so an exported variable cannot make a command act as if the box were
+# configured for Secure Development when its env file says otherwise.
 score_image() {
   local v="${SCORE_IMAGE:-}"
   [ -n "$v" ] || v="$(env_val SCORE_IMAGE)"
   printf '%s' "$v"
+}
+
+# Does this event run Secure Development? NON-EMPTY SCORE_IMAGE in the env
+# file is the whole switch (config v2, #386): its containers only exist when
+# an image reference does, so the same value that names the image also says
+# whether there is anything to fork, mirror, poll or verify. Empty is not an
+# error — an event can run quiz, classic or ai alone, and those are app-side
+# only — so every caller says "this event does not run Secure Development"
+# rather than just "nothing to do".
+runs_secdev() {
+  [ -n "$(env_val SCORE_IMAGE)" ]
+}
+
+# Exactly "poll" or "push", nothing else — the wizard re-asks until this says
+# yes. SCORE_INGEST is not just a label: docker-compose.yml expands it into
+# the Caddyfile mount path (caddy/Caddyfile.${SCORE_INGEST}), so a typo such
+# as "pussh" written to the env file fails the bring-up looking for a file
+# that does not exist, and step 8's profile choice would quietly fall back to
+# poll meanwhile. Case-sensitive on purpose: those are the two file names.
+valid_ingest() {
+  case "$1" in poll | push) return 0 ;; *) return 1 ;; esac
 }
 
 run() {
@@ -749,23 +792,24 @@ cmd_secrets() {
 }
 
 cmd_org() {
-  # Scorer source image, and the switch: empty means this event does not run
-  # Secure Development, so there is nothing fork-based to provision (quiz,
-  # classic and ai are scored entirely app-side). Not an error — but not
-  # silent either: an organizer who MEANT to run it and left SCORE_IMAGE
-  # empty gets told how to turn it on. Resolved before the org check so an
-  # app-only event needs no GITHUB_ORG at all, and before any gh/docker call
-  # so --dry-run stays dry.
-  #
-  # Deliberately NO upstream default — the kit assumes zero upstream access:
-  # build your own image from scorer/ (docs/scorer.md) and point SCORE_IMAGE
-  # at it.
-  local src; src="$(score_image)"
-  if [ -z "$src" ]; then
+  require_env_file
+  # The switch first: with SCORE_IMAGE empty this event does not run Secure
+  # Development, so there is nothing fork-based to provision (quiz, classic
+  # and ai are scored entirely app-side). Not an error — but not silent
+  # either: an organizer who MEANT to run it and left SCORE_IMAGE empty gets
+  # told how to turn it on. Asked before the org check so an app-only event
+  # needs no GITHUB_ORG at all, and before any gh/docker call so --dry-run
+  # stays dry.
+  if ! runs_secdev; then
     echo "== SCORE_IMAGE is empty in ${OUT:-.env} — this event does not run Secure Development; nothing to fork."
     echo "   To run it: build your own scorer image (docs/scorer.md), set SCORE_IMAGE in ${OUT:-.env}, and re-run."
     return 0
   fi
+
+  # The image to MIRROR, which an exported SCORE_IMAGE may override for a
+  # one-off run. Deliberately NO upstream default — the kit assumes zero
+  # upstream access: build your own from scorer/ (docs/scorer.md).
+  local src; src="$(score_image)"
 
   local org; org="$(env_val GITHUB_ORG)"
   [ -n "$org" ] || { echo "${OUT:-.env}: GITHUB_ORG missing — Secure Development forks into an org; set it (or run the wizard)" >&2; exit 1; }
@@ -797,9 +841,10 @@ EOF
 # EVENT_URL change (the footer link) or a template fix, without re-running
 # forks or the image mirror.
 cmd_render() {
+  require_env_file
   # No SCORE_IMAGE: nothing fork-based to render a scoring workflow for. Not
   # an error — same reasoning as cmd_org.
-  if [ -z "$(score_image)" ]; then
+  if ! runs_secdev; then
     echo "== SCORE_IMAGE is empty in ${OUT:-.env} — this event does not run Secure Development; no workflows to render."
     return 0
   fi
@@ -824,9 +869,10 @@ cmd_render() {
 # reports "already done" for a fork that is current, so this is safe to run
 # on a whim and safe to re-run after a partial failure.
 cmd_upgrade() {
+  require_env_file
   # Same reasoning as cmd_org/cmd_render: an app-only event has no forks, so
   # there is no workflow to upgrade. Not an error.
-  if [ -z "$(score_image)" ]; then
+  if ! runs_secdev; then
     echo "== SCORE_IMAGE is empty in ${OUT:-.env} — this event does not run Secure Development; no forks to upgrade."
     return 0
   fi
@@ -855,9 +901,10 @@ cmd_upgrade() {
 }
 
 cmd_teardown() {
+  require_env_file
   # No SCORE_IMAGE: nothing was ever forked to archive. Not an error — same
   # reasoning as cmd_org/cmd_render/cmd_upgrade.
-  if [ -z "$(score_image)" ]; then
+  if ! runs_secdev; then
     echo "== SCORE_IMAGE is empty in ${OUT:-.env} — this event does not run Secure Development; nothing to tear down."
     return 0
   fi
@@ -1190,7 +1237,7 @@ require_targets() {
 # the wizard is the documented recovery path, and an Enter-through must not
 # switch the org, drop an admin or turn Secure Development off.
 wiz_event_basics() {
-  local out="$1" ev_org ev_admins ev_score ev_url adm_default sd_default
+  local out="$1" ev_org ev_admins ev_score ev_ingest ev_url adm_default sd_default
   echo "  Answer a few questions to write $out (Enter accepts the [default])."
   echo "  The event's name, the modules that run and the Secure Development"
   echo "  targets are runtime settings — set them in /admin once it is up."
@@ -1217,14 +1264,52 @@ wiz_event_basics() {
   # The one setup-time fact left about Secure Development: whether its
   # containers run at all. SCORE_IMAGE non-empty IS that answer, everywhere
   # (compose profiles, this script's own fork/mirror/poll steps).
+  #
+  # ask_yn hard-answers "no" under --dry-run so a rehearsal never mutates
+  # anything; here that would narrate an event with Secure Development OFF
+  # for a box whose env file has SCORE_IMAGE set, and steps 4-7 would
+  # describe a run the real wizard would not make. So under --dry-run take
+  # the DEFAULT, which is that file's own answer.
   sd_default=N
-  if [ -n "$(score_image)" ]; then sd_default=Y; fi
+  if [ -n "$(env_val SCORE_IMAGE)" ]; then sd_default=Y; fi
+  local sd_yes=1
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "  Run Secure Development (fork the six targets and score patch PRs)? [$sd_default] (dry-run: default)"
+    [ "$sd_default" = Y ] || sd_yes=0
+  elif ! ask_yn "  Run Secure Development (fork the six targets and score patch PRs)?" "$sd_default"; then
+    sd_yes=0
+  fi
   ev_score=""
-  if ask_yn "  Run Secure Development (fork the six targets and score patch PRs)?" "$sd_default"; then
-    ev_score="$(score_image)"
+  ev_ingest=""
+  if [ "$sd_yes" -eq 1 ]; then
+    ev_score="$(env_val SCORE_IMAGE)"
     if [ -z "$ev_score" ]; then ev_score="ghcr.io/$ev_org/score:latest"; fi
     if [ -z "$ev_org" ]; then
       echo "  refusing to write $out: Secure Development forks into a GitHub org — GITHUB_ORG cannot be empty" >&2
+      return 1
+    fi
+    echo "  Secure Development provisions all six from targets.tsv: $(all_targets)."
+    # How score comments reach the leaderboard. SCORE_INGEST is not a label:
+    # docker-compose.yml expands it into the Caddyfile mount path and step 8
+    # reads it to pick profiles, so the answer is asked here and WRITTEN to
+    # the env file — the wizard used to write it to the deleted event config
+    # file only, and an organizer who answered "push" got a push label on a
+    # poll deployment with no warning (#372/#374).
+    ev_ingest="$(env_val SCORE_INGEST)"
+    [ -n "$ev_ingest" ] || ev_ingest=poll
+    wiz_ask ev_ingest "Score ingest (poll | push)" "$ev_ingest"
+    # Re-ask until it is exactly one of the two: a typo becomes a Caddyfile
+    # path that does not exist and a failed bring-up. Bounded, so an
+    # exhausted stdin (EOF) cannot spin; under --dry-run the default always
+    # passes, so this never runs.
+    local tries=0
+    while [ "$DRY_RUN" -ne 1 ] && ! valid_ingest "$ev_ingest" && [ "$tries" -lt 3 ]; do
+      echo "  Score ingest must be exactly 'poll' or 'push'."
+      wiz_ask ev_ingest "Score ingest (poll | push)" poll
+      tries=$((tries + 1))
+    done
+    if ! valid_ingest "$ev_ingest"; then
+      echo "  refusing to write $out: score ingest must be exactly 'poll' or 'push'" >&2
       return 1
     fi
   fi
@@ -1236,12 +1321,19 @@ wiz_event_basics() {
 
   if [ "$DRY_RUN" -eq 1 ]; then
     echo "  DRY-RUN: would write GITHUB_ORG, ADMIN_LOGINS and SCORE_IMAGE to $out"
+    [ -z "$ev_ingest" ] || echo "  DRY-RUN: would set SCORE_INGEST=$ev_ingest in $out"
   else
     set_env_var "$out" GITHUB_ORG "$ev_org"
     set_env_var "$out" ADMIN_LOGINS "$ev_admins"
     set_env_var "$out" SCORE_IMAGE "$ev_score"
     [ -z "$ev_url" ] || set_env_var "$out" EVENT_URL "$ev_url"
     echo "  ✅ wrote GITHUB_ORG, ADMIN_LOGINS and SCORE_IMAGE to $out"
+    # Only when Secure Development is on: without it there is no ingest to
+    # configure, and writing one would suggest a switch that does nothing.
+    if [ -n "$ev_ingest" ]; then
+      set_env_var "$out" SCORE_INGEST "$ev_ingest"
+      echo "  ✅ SCORE_INGEST=$ev_ingest in $out"
+    fi
   fi
   WIZ_SCORE_IMAGE="$ev_score"
 }
@@ -1292,13 +1384,23 @@ cmd_wizard() {
   fi
 
   # 3. Event basics — the whole of what this wizard writes.
+  #
+  # Already answered when there is an admin (the one key every event needs;
+  # empty makes /admin forbid everyone) AND, if this event runs Secure
+  # Development, an org to fork into. An app-only event legitimately has no
+  # GITHUB_ORG, so demanding one here would re-ask it every single run.
   wiz_step "3/9  Event basics ($out)"
-  if [ -n "$(env_val GITHUB_ORG)" ] && [ -n "$(env_val ADMIN_LOGINS)" ]; then
-    # Resumed run: the bootstrap plane is already answered. Print the two
-    # values it turns on (neither is a secret) and move on — re-asking would
-    # risk an Enter-through changing them.
-    echo "  ✅ $out (org: $(env_val GITHUB_ORG), admins: $(env_val ADMIN_LOGINS))"
-    WIZ_SCORE_IMAGE="$(score_image)"
+  local basics_done=0
+  if [ -n "$(env_val ADMIN_LOGINS)" ]; then
+    if ! runs_secdev || [ -n "$(env_val GITHUB_ORG)" ]; then basics_done=1; fi
+  fi
+  if [ "$basics_done" -eq 1 ]; then
+    # Resumed run: the bootstrap plane is already answered. Print what it
+    # turns on (none of it is a secret) and move on — re-asking would risk an
+    # Enter-through changing it.
+    local have_org; have_org="$(env_val GITHUB_ORG)"
+    echo "  ✅ $out (org: ${have_org:-<none>}, admins: $(env_val ADMIN_LOGINS))"
+    WIZ_SCORE_IMAGE="$(env_val SCORE_IMAGE)"
   elif ! wiz_event_basics "$out"; then
     echo "  Fix that and re-run the wizard — it resumes." >&2
     exit 1
@@ -1372,7 +1474,19 @@ cmd_wizard() {
   elif [ "$DRY_RUN" -eq 1 ]; then
     echo "  DRY-RUN: would open the OAuth-app page, then prompt Client ID + hidden secret"
   else
-    if ask_yn "  Open the OAuth-app page now?" Y; then cmd_oauth_app; fi
+    # Every event needs sign-in, Secure Development or not — but `oauth-app`
+    # opens the ORG's registration page, and an app-only event has no org. It
+    # would exit 1 naming GITHUB_ORG and take the wizard down with it, so
+    # point at the personal-account page instead (registering it there is
+    # already a documented option).
+    if [ -z "$org" ]; then
+      echo "  No event org, so register the OAuth app on your own account:"
+      echo "    https://github.com/settings/applications/new"
+      echo "    Homepage URL:                $(event_url)"
+      echo "    Authorization callback URL:  $(event_url)/api/auth/callback/github"
+    elif ask_yn "  Open the OAuth-app page now?" Y; then
+      cmd_oauth_app
+    fi
     pause_confirm "  Press Enter once you've registered the app and generated a client secret…"
     while :; do
       wiz_ask CLIENT_ID "  OAuth Client ID" ""
@@ -1382,35 +1496,43 @@ cmd_wizard() {
   fi
 
   # 7. Create + provision the org.
-  wiz_step "7/9  Event org ($org)"
-  # --dry-run makes zero gh/docker calls (AGENTS.md), so the existence probe
-  # and the closing doctor sweep below are narrated, not run.
-  if [ "$DRY_RUN" -eq 1 ]; then
-    echo "  DRY-RUN: would check that org $org exists (gh api orgs/$org)"
-  elif gh_ok "orgs/$org"; then
-    echo "  ✅ org $org exists"
-  else
-    echo "  Create it (UI-only): https://github.com/account/organizations/new  (name: $org)"
-    pause_confirm "  Press Enter once the org exists…"
-    if ! gh_ok "orgs/$org"; then
-      echo "  Still can't see org $org — create it, then re-run."
-      exit 0
-    fi
-  fi
+  #
+  # The org exists for ONE reason: Secure Development forks into it. An
+  # app-only event has no org (GITHUB_ORG is legitimately empty), so this
+  # whole step — including the "create it, then re-run" stop, which used to
+  # end such a run at step 7 with steps 8 and 9 never reached — is skipped
+  # rather than asked.
+  wiz_step "7/9  Event org (${org:-<none>})"
   if [ "$secdev" -eq 0 ]; then
-    echo "  ⏭  nothing to provision — this event does not run Secure Development (no targets to fork)"
-  elif ask_yn "  Provision the org now (fork targets, branches, workflow, image)?" Y; then
-    # A failed provisioning is a stop, not a shrug: pausing for UI steps on
-    # forks that do not exist, then bringing the stack up against them,
-    # would only move the failure somewhere less legible.
-    if cmd_org; then
-      provisioned=1
-    else
-      echo "  Provisioning failed — fix the error above, then re-run (the wizard resumes)." >&2
-      exit 1
-    fi
+    echo "  ⏭  not needed — this event does not run Secure Development (no org to fork into)"
   else
-    echo "  Skipped. Run 'ctf-setup.sh org' (preview with --dry-run) when ready."
+    # --dry-run makes zero gh/docker calls (AGENTS.md), so the existence probe
+    # and the closing doctor sweep below are narrated, not run.
+    if [ "$DRY_RUN" -eq 1 ]; then
+      echo "  DRY-RUN: would check that org $org exists (gh api orgs/$org)"
+    elif gh_ok "orgs/$org"; then
+      echo "  ✅ org $org exists"
+    else
+      echo "  Create it (UI-only): https://github.com/account/organizations/new  (name: $org)"
+      pause_confirm "  Press Enter once the org exists…"
+      if ! gh_ok "orgs/$org"; then
+        echo "  Still can't see org $org — create it, then re-run."
+        exit 0
+      fi
+    fi
+    if ask_yn "  Provision the org now (fork targets, branches, workflow, image)?" Y; then
+      # A failed provisioning is a stop, not a shrug: pausing for UI steps on
+      # forks that do not exist, then bringing the stack up against them,
+      # would only move the failure somewhere less legible.
+      if cmd_org; then
+        provisioned=1
+      else
+        echo "  Provisioning failed — fix the error above, then re-run (the wizard resumes)." >&2
+        exit 1
+      fi
+    else
+      echo "  Skipped. Run 'ctf-setup.sh org' (preview with --dry-run) when ready."
+    fi
   fi
   # The UI-only steps come NOW, before verification, not after it. doctor used
   # to run right here, the instant provisioning finished, and only then did the
