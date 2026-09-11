@@ -140,5 +140,9 @@ describe("ChallengeGrid (queue)", () => {
     );
     expect(html).not.toContain("<a ");
     expect(html).toContain("DVWA");
+    // The unlinked repo name must not carry link-affordance classes either
+    // (#386 review) — a `ds-link` underline on unclickable text reads as a
+    // broken link, not as plain text.
+    expect(html).not.toContain("ds-link");
   });
 });

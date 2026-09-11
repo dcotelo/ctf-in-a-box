@@ -49,10 +49,22 @@ function hintTextId(app: AppId, id: string): string {
 const SELECT =
   "rounded-md border border-white/10 bg-[#12121e] px-2.5 py-2 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]";
 
+/** Link-affordance classes stripped from the no-`url` span below — an
+ *  underline (`ds-link`) or a hover color change reads as clickable even
+ *  though the element carries no `href` (#386 review). */
+const LINK_ONLY_CLASSES = new Set(["ds-link", "hover:text-white"]);
+
 /** A target's fork link, or plain repo-name text when no `GITHUB_ORG` is
- *  configured (`url` is `null`) — never a link to `https://github.com//DVWA`. */
+ *  configured (`url` is `null`) — never a link to `https://github.com//DVWA`,
+ *  and never styled to look like one either: the caller's `className` is
+ *  built for the `<a>`, so the no-url `<span>` strips its link-only classes
+ *  and falls back to `text-muted`. */
 function RepoLink({ app, url, className }: { app: AppId; url: string | null | undefined; className: string }) {
-  if (!url) return <span className={className}>{repoName(app)}</span>;
+  if (!url) {
+    const spanClasses = className.split(" ").filter((c) => c && !LINK_ONLY_CLASSES.has(c));
+    if (!spanClasses.includes("text-muted")) spanClasses.push("text-muted");
+    return <span className={spanClasses.join(" ")}>{repoName(app)}</span>;
+  }
   return (
     <a href={url} target="_blank" rel="noopener noreferrer" className={className}>
       {url.replace("https://github.com/", "")}

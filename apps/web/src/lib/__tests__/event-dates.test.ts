@@ -30,4 +30,22 @@ describe("formatDateRange", () => {
     expect(formatDateRange(null, null)).toBe("");
     expect(formatDateRange("nope", null)).toBe("");
   });
+
+  // Pinning current behaviour, not endorsing it: `formatDateRange` trusts
+  // its bounds and does no ordering check of its own. Whether `end < start`
+  // should be refused is a setup-wizard/`doctor` concern (#386), NOT
+  // validated here — this only documents what the renderer does today so a
+  // future change is a deliberate diff against this test, not a surprise.
+  it("end before start → renders the reversed range unchanged (not validated here)", () => {
+    expect(formatDateRange("2026-10-05T09:00:00Z", "2026-10-01T18:00:00Z")).toBe(
+      "Oct 5 – Oct 1, 2026",
+    );
+  });
+
+  // A valid start with an end that fails to parse collapses to the
+  // start-only case — same as an absent end (parseInstant treats malformed
+  // and missing identically).
+  it("valid start, unparseable end → 'From …'", () => {
+    expect(formatDateRange("2026-10-01T09:00:00Z", "nope")).toBe("From Oct 1, 2026");
+  });
 });
