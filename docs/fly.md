@@ -77,11 +77,20 @@ admin roster, re-sync from `.env`:
 `--refresh` re-copies `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`,
 `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`,
 `SCORE_IMAGE`, `GITHUB_ORG` and `ADMIN_LOGINS` from `.env`, overwriting what
-is in `.env.fly` — then falls through to the same top-up `init` always does
+is in `.env.fly` — and **adding** any of them the file does not carry yet,
+which is what a `.env.fly` written before configuration v2 looks like for
+`GITHUB_ORG` and `ADMIN_LOGINS`. It then falls through to the same top-up
+`init` always does
 (`SRH_TOKEN`, the region, `REDIS_PASSWORD`, the single-volume knobs), so a
 `--refresh` on an old file never leaves it half-prepared (issue #381).
 `EVENT_URL`, `FLY_REGION`, `SRH_TOKEN` and `REDIS_PASSWORD` are left alone —
 they belong to this deployment, not the compose stack `.env` describes.
+
+A deploy refuses outright — naming the key — if `GITHUB_ORG` or
+`ADMIN_LOGINS` is empty in `.env.fly`. Neither fails loudly on the machine:
+an empty allowlist deploys an event whose `/admin` forbids everyone (you
+included), and without an org `sync` exits at start-up while the other four
+containers look healthy.
 
 Changed only a secret or a runtime setting, and want to skip the image
 rebuild?

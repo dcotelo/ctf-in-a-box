@@ -710,6 +710,41 @@ ENV
   [ "$(sed -n 's/^ADMIN_LOGINS=//p' "$BATS_TEST_TMPDIR/env.fly.stale" | tail -1)" = "fixture-admin" ]
 }
 
+@test "init --refresh ADDS the config-v2 keys to an env file that lacks them" {
+  cd "$REPO"
+  # A `.env.fly` written BEFORE config v2 (#386) has no GITHUB_ORG and no
+  # ADMIN_LOGINS line at all — which the awk rewrite could only ever replace,
+  # never add, while still reporting "updated". Asserts the FILE, not the exit
+  # status: the old behaviour exited 0 and left the file unchanged.
+  grep -vE '^(GITHUB_ORG|ADMIN_LOGINS)=' "$BATS_TEST_TMPDIR/env" \
+    > "$BATS_TEST_TMPDIR/env.fly.prev2"
+  run ./deploy/fly/deploy.sh init --refresh --region gru \
+    --from "$BATS_TEST_TMPDIR/env" --env-file "$BATS_TEST_TMPDIR/env.fly.prev2"
+  [ "$(sed -n 's/^GITHUB_ORG=//p' "$BATS_TEST_TMPDIR/env.fly.prev2" | tail -1)" = "fixture-org" ]
+  [ "$(sed -n 's/^ADMIN_LOGINS=//p' "$BATS_TEST_TMPDIR/env.fly.prev2" | tail -1)" = "fixture-admin" ]
+}
+
+@test "deploy refuses an env file with no ADMIN_LOGINS, naming the key" {
+  cd "$REPO"
+  # An empty admin allowlist locks EVERYONE out of /admin, including the
+  # operator running the deploy, and nothing in a healthy-looking machine says
+  # so — the 403 arrives after the deploy, at sign-in.
+  grep -v '^ADMIN_LOGINS=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.noadmins"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.noadmins"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qF 'ADMIN_LOGINS is empty'
+}
+
+@test "deploy refuses an env file with no GITHUB_ORG, naming the key" {
+  cd "$REPO"
+  # Fly is poll-only, so sync always runs here — and it exits at start-up
+  # without an org while the other four containers come up clean.
+  grep -v '^GITHUB_ORG=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.noorg"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.noorg"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qF 'GITHUB_ORG is empty'
+}
+
 @test "init --refresh falls through to the top-up prompts instead of exiting (#381)" {
   cd "$REPO"
   # A stale .env.fly missing the knobs a plain `init` would have added — this

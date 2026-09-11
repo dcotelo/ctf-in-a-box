@@ -212,13 +212,28 @@ if [ "$CMD" = "init" ]; then
         echo "DRY-RUN: would update $key"
         continue
       fi
-      # Rewritten in place with awk rather than sed -i, because these values
-      # contain / and + (base64) and would need escaping in a sed pattern.
-      awk -v k="$key" -v v="$src" \
-        'BEGIN{FS=OFS="="} $1==k {print k "=" v; next} {print}' \
-        "$ENV_FILE" > "$ENV_FILE.tmp" && mv "$ENV_FILE.tmp" "$ENV_FILE"
-      chmod 600 "$ENV_FILE"
-      echo "   $key updated"
+      # REPLACE the line if it is there, APPEND it if it is not.
+      #
+      # The awk rewrite alone only ever replaces: with no `KEY=` line to match,
+      # it copies the file through untouched and the loop still printed
+      # "$key updated" — a lie on exactly the file that needs the most help.
+      # A `.env.fly` written before config v2 (#386) has no GITHUB_ORG and no
+      # ADMIN_LOGINS at all, so `--refresh` claimed to carry them over and
+      # carried nothing; the deploy then ran with an empty admin allowlist
+      # (nobody can open /admin) and a sync that refuses to start.
+      if grep -q "^$key=" "$ENV_FILE"; then
+        # Rewritten in place with awk rather than sed -i, because these values
+        # contain / and + (base64) and would need escaping in a sed pattern.
+        awk -v k="$key" -v v="$src" \
+          'BEGIN{FS=OFS="="} $1==k {print k "=" v; next} {print}' \
+          "$ENV_FILE" > "$ENV_FILE.tmp" && mv "$ENV_FILE.tmp" "$ENV_FILE"
+        chmod 600 "$ENV_FILE"
+        echo "   $key updated"
+      else
+        printf '%s=%s\n' "$key" "$src" >> "$ENV_FILE"
+        chmod 600 "$ENV_FILE"
+        echo "   $key added"
+      fi
     done
     echo
     echo "  Refreshed. Now checking for anything else still missing..."
@@ -441,7 +456,18 @@ case "$EVENT_HOST" in
     echo >&2 ;;
 esac
 
-for name in BETTER_AUTH_SECRET GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET SCORER_TOKEN; do
+# Every one of these is fatal-if-empty, and each is named individually by
+# `require` so the message points at the one key that is missing.
+#
+# GITHUB_ORG and ADMIN_LOGINS join the sweep with config v2 (#386): they are
+# runtime reads now, nothing bakes them, and neither fails loudly on its own.
+# An empty ADMIN_LOGINS deploys an event whose /admin forbids EVERYONE,
+# including the operator who just deployed it; an empty GITHUB_ORG leaves sync
+# exiting at start-up on a machine whose other four containers look healthy.
+# Fly is poll-only (see the SCORE_INGEST refusal above), so sync always runs
+# here and the org is never optional.
+for name in BETTER_AUTH_SECRET GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET SCORER_TOKEN \
+            GITHUB_ORG ADMIN_LOGINS; do
   require "$name" "$(env_value "$name")"
 done
 
