@@ -169,19 +169,19 @@ command and runs none of them.
 ## Variables
 
 Every input is in `variables.tf` with its own description;
-`terraform.tfvars.example` shows each at its default. Only two have none:
+`terraform.tfvars.example` shows each at its default. Three are required:
 
 | Variable | Why it is required |
 |---|---|
 | `domain` | The session cookie is `Secure`. There is no working HTTP mode. |
 | `app_image` | What ECS runs. `deploy.sh` writes it into `image.auto.tfvars`; the example carries a placeholder for the bootstrap apply. |
+| `admin_logins` | The `/admin` allowlist. Its `validation` block refuses an empty one at plan time — that would forbid everyone, you included, and the only fix is another apply. |
 
-`github_org` and `admin_logins` default to `""` — empty means the app falls
-back to bare repo names and nobody can open `/admin`, respectively — and are
-read at runtime, not baked into the image. `github_org` is legal empty only
-for an app-only or push-mode event: with Secure Development enabled in poll
-mode, its own `validation` block requires it, because sync exits at startup
-without one.
+`github_org` and `admin_logins` are read at runtime, not baked into the image.
+`github_org` defaults to `""` and is legal empty only for an app-only or
+push-mode event — the app falls back to bare repo names; with Secure
+Development enabled in poll mode its own `validation` block requires it,
+because sync exits at startup without one.
 
 ## Tear down
 

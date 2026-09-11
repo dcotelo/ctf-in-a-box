@@ -201,6 +201,20 @@ run "push_mode_needs_no_sync_image" {
   }
 }
 
+// admin_logins' rule is UNCONDITIONAL, which is what separates it from the
+// two above: no event shape wants an empty admin roster. The string is the
+// /admin allowlist itself, so an empty one is a stack nobody can administer —
+// a 403 discovered after a clean apply, fixable only by another apply.
+run "an_event_with_no_admin_logins_is_refused" {
+  command = plan
+
+  variables {
+    admin_logins = ""
+  }
+
+  expect_failures = [var.admin_logins]
+}
+
 run "an_event_with_no_certificate_source_is_refused" {
   command = plan
 

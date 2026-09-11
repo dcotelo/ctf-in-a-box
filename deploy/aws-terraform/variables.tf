@@ -114,9 +114,24 @@ variable "github_org" {
 }
 
 variable "admin_logins" {
-  description = "Comma-separated GitHub logins allowed into /admin. Read by the app at runtime (config v2, #386) — mirrored into the app task definition like scorer_image. Empty means nobody can open /admin."
+  description = "Comma-separated GitHub logins allowed into /admin. REQUIRED — every event needs at least one admin. Read by the app at runtime (config v2, #386) — mirrored into the app task definition like scorer_image."
   type        = string
   default     = ""
+
+  // UNCONDITIONAL, unlike github_org's rule above: there is no event shape
+  // that wants an empty admin roster. This string IS the /admin allowlist, so
+  // an empty one locks every login out of the panel — including whoever ran
+  // the apply, and including the settings page that is the only way to open
+  // registration, unpause scoring or archive the event. The lockout shows up
+  // as a 403 long after a clean apply, and the only fix is another apply.
+  // docs/hosting.md lists ADMIN_LOGINS as required for the same reason.
+  //
+  // The `default = ""` stays so the refusal is THIS sentence rather than a
+  // bare interactive prompt for an unset variable in a non-interactive plan.
+  validation {
+    condition     = var.admin_logins != ""
+    error_message = "admin_logins must name at least one GitHub login — with an empty list /admin would forbid everyone, including whoever ran the apply."
+  }
 }
 
 variable "enable_secure_development" {

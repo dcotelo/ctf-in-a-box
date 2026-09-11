@@ -47,10 +47,10 @@ acm_certificate_arn = ""
 # refuses to start without one.
 # github_org = "your-event-org"
 
-# Comma-separated GitHub logins allowed into /admin. Read by the app at
-# runtime — the `.env`-equivalent of ADMIN_LOGINS. Empty means nobody can
-# open /admin.
-# admin_logins = "octocat,defunkt"
+# REQUIRED. Comma-separated GitHub logins allowed into /admin. Read by the app
+# at runtime — the `.env`-equivalent of ADMIN_LOGINS. An empty list is refused
+# at plan time: it would forbid everyone from /admin, including you.
+admin_logins = "octocat,defunkt"
 
 # false for a quiz-only or classic-only event: no scorer, no sync, no GitHub.
 # Same rule as the compose profiles.
