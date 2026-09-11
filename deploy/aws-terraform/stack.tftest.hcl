@@ -166,6 +166,22 @@ run "poll_mode_without_a_sync_image_is_refused" {
   expect_failures = [var.sync_image]
 }
 
+// github_org's rule is the same shape as sync_image's, for the same reason:
+// poll mode is the one combination that actually runs sync, and sync exits
+// at startup without GITHUB_ORG (sync/src/config.js) rather than treating a
+// blank one as "nothing to poll".
+run "poll_mode_without_a_github_org_is_refused" {
+  command = plan
+
+  variables {
+    enable_secure_development = true
+    score_ingest              = "poll"
+    github_org                = ""
+  }
+
+  expect_failures = [var.github_org]
+}
+
 // The complement of the run above, and the reason sync_image's rule is
 // narrower than scorer_image's: push mode has the fork's Action POST to the
 // scorer directly, so there is no poller and no image to demand. Without this

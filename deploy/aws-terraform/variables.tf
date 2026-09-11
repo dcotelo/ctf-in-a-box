@@ -97,9 +97,20 @@ variable "acm_certificate_arn" {
 // --- what this event runs --------------------------------------------------
 
 variable "github_org" {
-  description = "The GitHub org the target forks live in. Read by the app and by sync at runtime (config v2, #386) — mirrored into both task definitions like scorer_image. Empty is legal: the app falls back to bare repo names, but sync (when it runs) refuses to start without one."
+  description = "The GitHub org the target forks live in. Read by the app and by sync at runtime (config v2, #386) — mirrored into both task definitions like scorer_image. Empty is legal for an app-only or push-mode event: the app falls back to bare repo names. It is NOT legal in poll mode — sync (when it runs) refuses to start without one."
   type        = string
   default     = ""
+
+  // Same shape as sync_image's rule, and for the same reason: poll mode is
+  // the one combination that actually runs sync, and sync/src/config.js
+  // throws at startup rather than treating a blank GITHUB_ORG as "nothing to
+  // poll". Left unset here it would be a plan-time silence followed by a
+  // task that never reaches a steady state — this turns it into the same
+  // plan-time sentence scorer_image/sync_image already get.
+  validation {
+    condition     = !(var.enable_secure_development && var.score_ingest == "poll") || var.github_org != ""
+    error_message = "github_org must be set when Secure Development runs in poll mode — sync exits at startup without GITHUB_ORG (see sync/src/config.js)."
+  }
 }
 
 variable "admin_logins" {

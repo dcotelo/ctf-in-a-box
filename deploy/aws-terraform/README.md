@@ -178,7 +178,10 @@ Every input is in `variables.tf` with its own description;
 
 `github_org` and `admin_logins` default to `""` — empty means the app falls
 back to bare repo names and nobody can open `/admin`, respectively — and are
-read at runtime, not baked into the image.
+read at runtime, not baked into the image. `github_org` is legal empty only
+for an app-only or push-mode event: with Secure Development enabled in poll
+mode, its own `validation` block requires it, because sync exits at startup
+without one.
 
 ## Tear down
 
