@@ -178,14 +178,22 @@ docker compose logs -f sync
 
 ## Prerequisites
 
+Every event needs:
+
 - Docker with Compose v2 (`docker compose version` must work).
-- [`gh` CLI](https://cli.github.com), authenticated (`gh auth login`).
+- [`gh` CLI](https://cli.github.com), authenticated (`gh auth login`) —
+  `ctf-setup.sh check` requires it whatever the module mix.
 - `openssl` — `ctf-setup.sh check` requires it (used for secret generation).
-- A GitHub org for the event — one free org per event.
+
+Only an event that runs **Secure Development** (`SCORE_IMAGE` set in `.env`)
+also needs:
+
+- A GitHub org for the event — one free org per event. It becomes
+  `GITHUB_ORG`: the org the forks live in and the poller reads.
 - `docker login ghcr.io` with a `write:packages` token. The `org` subcommand
   ends with `docker push ghcr.io/<org>/score:latest`, so it needs write access
   to your own org's packages.
-- A scorer image named by `SCORE_IMAGE` in `.env`. There is no default, and
+- A scorer image named by `SCORE_IMAGE`. There is no default, and
   `ctf-setup org` refuses to run until it is set.
 
 Build your own scorer from the engine in `scorer/` — that is the
@@ -468,23 +476,19 @@ switched on from the panel (#386). Nothing enforces that the two agree, so
 keep them in sync yourself: never bring the `poll` profile up without a
 `SCORE_IMAGE`, or the scorer container has nothing to score against.
 
-**Every one of these is a `--build`, so every one needs `EVENT_CONFIG_B64`.**
-Export it once, in the same shell — without it the build silently bakes
-neutral defaults, including an empty `admins` list that 403s everyone out of
-`/admin`:
+Nothing is baked into the images any more (#386): `--build` only rebuilds
+the code, and every value the containers need — `ADMIN_LOGINS`,
+`GITHUB_ORG`, `SCORE_IMAGE`, `SCORE_INGEST` — is read from `.env` when they
+start. Pick the command by what that file says:
 
-```sh
-export EVENT_CONFIG_B64="$(base64 < event.yaml | tr -d '\n')"
-```
-
-| `modules:` in your `event.yaml` | Command |
+| `.env` | Command |
 |---|---|
-| `secure-development` (poll mode), with or without `quiz`/`classic`/`ai` | `docker compose --profile poll --profile app up -d --build` |
-| `secure-development` (push mode), with or without `quiz`/`classic`/`ai` | `SCORE_INGEST=push docker compose --profile push --profile app up -d --build` |
-| `quiz` and/or `classic` and/or `ai`, no `secure-development` | `docker compose --profile app up -d --build` |
+| `SCORE_IMAGE` set, `SCORE_INGEST=poll` (or unset) | `docker compose --profile poll --profile app up -d --build` |
+| `SCORE_IMAGE` set, `SCORE_INGEST=push` | `docker compose --profile push --profile app up -d --build` |
+| `SCORE_IMAGE` empty — no Secure Development | `docker compose --profile app up -d --build` |
 
 `ctf-setup.sh wizard` prints (and offers to run) the right one for the
-`event.yaml` you configured, so you do not have to pick by hand.
+`.env` it wrote, so you do not have to pick by hand.
 
 Prefer the cloud over your own machine? [Deploy on AWS](aws.md) ships a
 Terraform module for an ECS Fargate stack behind an ALB, over managed

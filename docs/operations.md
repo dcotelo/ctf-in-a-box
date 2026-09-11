@@ -1595,10 +1595,11 @@ three facts that have no other alarm:
 
 - **`ADMIN_LOGINS` is non-empty.** Empty means `/admin` forbids every login,
   which is silent until an organizer tries to open the panel mid-event.
-- **`GITHUB_ORG` is set, and is the org being inspected.** A mismatch fails —
-  it means the box and the provisioning are pointed at different orgs. With
-  Secure Development off (no `SCORE_IMAGE`) an absent value is only a
-  warning: an app-only event has no org.
+- **`GITHUB_ORG` is set.** `doctor` takes no separate org argument —
+  `GITHUB_ORG` *is* the org it inspects, so there is no second value for it
+  to disagree with; what it catches is the key being absent. With Secure
+  Development off (no `SCORE_IMAGE`) that is only a warning: an app-only
+  event has no org.
 - **The `sync` GitHub App is installed on the org.** Without it the poller
   authenticates against nothing and no score ever reaches the leaderboard.
   Checked by App id against the org's installations, and it **fails closed**:

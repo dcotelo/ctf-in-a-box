@@ -130,8 +130,9 @@ and a score-over-time graph; `./scripts/dev-stack score <login> juice-shop 3`
 lands three more solves live. `./scripts/dev-stack down` tears it down.
 
 **Run a real event** with the guided wizard. Add the **[`gh`
-CLI](https://cli.github.com)** (authenticated) and **one free GitHub org**;
-`./setup/ctf-setup.sh check` verifies the tooling first:
+CLI](https://cli.github.com)** (authenticated), plus **one free GitHub org**
+if the event runs Secure Development; `./setup/ctf-setup.sh check` verifies
+the tooling first:
 
 ```sh
 ./setup/ctf-setup.sh            # guided, prompts for values, resumable
