@@ -6,30 +6,10 @@
 // not do that.
 //
 // Own file because `vi.mock` hoists per file and this fixture needs its own
-// event config — same split as page-quiz-only.test.tsx and
+// module set — same split as page-quiz-only.test.tsx and
 // lib/__tests__/modules-resolve.test.ts.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Two-Track CTF",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [
-      { id: "secure-development", targets: ["dvwa"], scoreIngest: "poll" },
-      { id: "quiz" },
-    ],
-    targets: ["dvwa"],
-    admins: [],
-  },
-}));
 
 const { getSession, getUser, getViewerTeam, getViewerHints, getQuizTotals, listQuestions } =
   vi.hoisted(() => ({
@@ -62,6 +42,10 @@ vi.mock("@/lib/admin-store", () => ({
   // The page reads the registration window for the team card's
   // closed-state explanation (issue #217).
   effectiveRegistrationOpen: () => true,
+}));
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => ["secure-development", "quiz"].includes(id),
 }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession } } }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource: async () => ({ getUser }) }));

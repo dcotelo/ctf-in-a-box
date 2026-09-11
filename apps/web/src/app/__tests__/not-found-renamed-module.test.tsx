@@ -23,31 +23,15 @@ vi.mock("@/lib/admin-store", () => ({
   getAdminSettings: async () => ({
     moduleOverrides: { quiz: { title: "Round 1" } },
     enabledModuleIds: ["secure-development", "quiz"],
-    // The live target list now comes from here, not event.yaml's `targets`
-    // (issue #386, PR 2) — one target, matching this fixture's old
-    // `eventConfig.targets` value, so "1 target" below still pins a real
-    // count rather than a coincidence of the default.
+    // The live target list now comes from here, not the (now-dead) event.yaml
+    // bake (issue #386, PR 2) — one target, so "1 target" below still pins a
+    // real count rather than a coincidence of the default.
     secureDevTargets: ["dvwa"],
   }),
 }));
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Two-Track CTF",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [
-      { id: "secure-development", targets: ["dvwa"], scoreIngest: "poll" },
-      { id: "quiz" },
-    ],
-    targets: ["dvwa"],
-    admins: [],
-  },
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => ["secure-development", "quiz"].includes(id),
 }));
 
 import NotFound from "@/app/not-found";

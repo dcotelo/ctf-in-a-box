@@ -4,28 +4,10 @@
 // workflow, and classic's own copy must actually render instead.
 //
 // Own file because `vi.mock` hoists per file and this fixture needs its own
-// event config (the shipped one enables secure-development only) — same
-// split as lib/__tests__/modules-resolve.test.ts.
+// module set — same split as lib/__tests__/modules-resolve.test.ts.
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { findSecureDevLeaks, normalizeHtml, SECURE_DEV_PATTERNS, SECURE_DEV_TERMS } from "../(site)/__tests__/secure-dev-terms";
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Flag Night",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [{ id: "classic" }],
-    targets: [],
-    admins: [],
-  },
-}));
 
 vi.mock("server-only", () => ({}));
 // The redesigned landing reads the session (for the state-aware primary CTA),
@@ -48,12 +30,16 @@ vi.mock("@/lib/admin-store", () => ({
   // `getResolvedModules` falls back to the baked shim's ALL-module
   // `defaultModuleIds` unless this names the fixture's own set.
   // `eventIdentity` is config v2's source for the event name (issue #386,
-  // PR 1b) — `@/lib/event-config`'s `name` above no longer feeds it.
+  // PR 1b).
   getAdminSettings: async () => ({
     moduleOverrides: {},
     enabledModuleIds: ["classic"],
     eventIdentity: { eventName: "Flag Night" },
   }),
+}));
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "classic",
 }));
 vi.mock("@/lib/challenges", () => ({ getChallengeCatalog: async () => null }));
 vi.mock("next/font/google", () => {

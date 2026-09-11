@@ -20,6 +20,6 @@ describe("defaultEnabledModules", () => {
     expect(defaultEnabledModules({})).toEqual([]);
   });
   it("never reads anything but SCORE_IMAGE", () => {
-    expect(defaultEnabledModules({ EVENT_CONFIG_B64: "abc", DEMO_MODE: "1" })).toEqual([]);
+    expect(defaultEnabledModules({ ADMIN_LOGINS: "alice", DEMO_MODE: "1" })).toEqual([]);
   });
 });

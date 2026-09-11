@@ -5,16 +5,18 @@
 // rows at `points: 0` would open a classic-only event on a scoreboard where
 // every team is tied at nothing while the individual view shows real points.
 //
-// Own file because the fixture is the BAKED event config (the shipped one
-// enables only secure-development) and `vi.mock` is hoisted per file — the
-// same split the sibling quiz-only files use.
+// Own file because this fixture needs its own module set (classic only, not
+// the enabled-modules-baked double's default of secure-development only) and
+// `vi.mock` is hoisted per file — the same split the sibling quiz-only files
+// use.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LeaderboardData } from "../types";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: { targets: [], modules: [{ id: "classic" }] },
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "classic",
 }));
 
 const mocks = vi.hoisted(() => ({

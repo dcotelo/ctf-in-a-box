@@ -1,13 +1,6 @@
-// The ai module's registration. Registration is code + config: an entry in the
-// registry AND a key under `modules:` in event.yaml. This pins the code half.
-import { describe, expect, it, vi } from "vitest";
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    targets: [],
-    modules: [{ id: "ai" }],
-  },
-}));
+// The ai module's registration in the registry — enablement is a runtime
+// /admin setting, not a registration concern (config v2, issue #386).
+import { describe, expect, it } from "vitest";
 
 import { moduleDefById, resolveModules } from "@/lib/modules";
 

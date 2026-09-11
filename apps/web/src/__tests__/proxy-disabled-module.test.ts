@@ -30,22 +30,6 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("better-auth/cookies", () => ({ getSessionCookie: mocks.getSessionCookie }));
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "OWASP CTF",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [{ id: "secure-development", targets: ["juice-shop"] }],
-    targets: ["juice-shop"],
-    admins: [],
-  },
-}));
 
 import { proxy } from "@/proxy";
 

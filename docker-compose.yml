@@ -33,6 +33,14 @@ services:
       UPSTASH_REDIS_REST_URL: http://srh:80
       UPSTASH_REDIS_REST_TOKEN: ${SRH_TOKEN}
       TEAM_WRITES_ENABLED: "true"
+      # The GitHub org contestants fork the target repos under (config v2,
+      # issue #386): a runtime read, not a build arg, so it must be passed
+      # through here or setting it in .env does nothing.
+      GITHUB_ORG: ${GITHUB_ORG:-}
+      # The /admin allowlist, comma-separated logins (config v2, issue #386):
+      # a runtime read too. Empty or unset refuses every login at /admin —
+      # see apps/web/src/lib/bootstrap-env.ts.
+      ADMIN_LOGINS: ${ADMIN_LOGINS:-}
       # Runtime flag: exposes the /admin "Seed demo data" button + its route.
       # Set to "1" only for demos (dev-stack does). Never in a real event.
       DEMO_MODE: ${DEMO_MODE:-}
@@ -52,12 +60,6 @@ services:
       # above: runtime reads, so they only work if compose passes them.
       CHALLENGES_GATE_ENABLED: ${CHALLENGES_GATE_ENABLED:-}
       CHALLENGES_GATE_PASSWORD: ${CHALLENGES_GATE_PASSWORD:-}
-      # The GitHub org contestants fork the target repos under; empty means
-      # fork links render as bare repo names instead (config v2, #386).
-      GITHUB_ORG: ${GITHUB_ORG:-}
-      # The bootstrap admin allowlist; empty means nobody can open /admin
-      # until it is set and the app restarts (config v2, #386).
-      ADMIN_LOGINS: ${ADMIN_LOGINS:-}
     # NOT depends_on scorer: the app reads the scorer over HTTP lazily, per
     # request, and depends_on does not wait for readiness anyway — so this
     # only ever expressed a start ORDER. Keeping it would have forced the

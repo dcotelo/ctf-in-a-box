@@ -511,7 +511,7 @@ describe("AdminControls event identity section", () => {
 // this chain) is what the Event tab's master-reset modal asks the organizer
 // to type. `renderToStaticMarkup` never mounts that modal — it is gated
 // behind `useState` (see this file's header comment) — so there is no
-// rendered string to assert against; a revert to the baked `eventConfig.name`
+// rendered string to assert against; a revert to a hardcoded default name
 // would leave every markup-only assertion in this file exactly as green as
 // it is today. This calls AdminControls, then AdminEventTab, directly
 // (bypassing JSX/reconciliation via `captureTree`/`findElement` above) to

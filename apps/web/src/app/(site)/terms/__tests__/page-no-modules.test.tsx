@@ -15,24 +15,10 @@ import { findSecureDevLeaks } from "../../__tests__/secure-dev-terms";
 vi.mock("server-only", () => ({}));
 vi.mock("next/server", () => ({ connection: async () => {} }));
 vi.mock("@/lib/admin-store", () => ({
+  // No `enabledModuleIds` stored: `getEnabledModuleIds` falls back to
+  // `defaultModuleIds`, which is empty with no `SCORE_IMAGE` set — the
+  // simplest way to reach "no module contributes any terms".
   getAdminSettings: async () => ({ moduleOverrides: {} }),
-}));
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Frameless CTF",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [],
-    targets: [],
-    admins: [],
-  },
 }));
 
 import Terms from "@/app/(site)/terms/page";

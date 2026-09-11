@@ -119,13 +119,15 @@ to share, the captain's controls, and a header stat per enabled module.</sup>
 
 ## Organizer admin panel
 
-Anyone listed in `event.yaml`'s `admins` (checked case-insensitively against
+Anyone listed in `.env`'s `ADMIN_LOGINS` (checked case-insensitively against
 their GitHub login) can sign in and reach `/admin` — everyone else gets a
 403, on both the page and its API routes.
 
-Those are the **bootstrap** admins: baked into the image, so changing them
-needs a rebuild. Everyone else is granted from the panel itself, on the
-**Admins** tab, and takes effect immediately (see below).
+Those are the **bootstrap** admins: read from the environment at runtime, so
+changing them needs a restart, not a rebuild. An empty or unset
+`ADMIN_LOGINS` locks everyone out of `/admin`. Everyone else is granted from
+the panel itself, on the **Admins** tab, and takes effect immediately (see
+below).
 
 The header is one row — `Admin · <event name> · <phase badge> · until <date>`
 — with the same phase vocabulary and colours as the public phase strip. The
@@ -768,22 +770,23 @@ wrong about a team size.
 
 The **Admins** tab grants organizer access at runtime. Type a GitHub login,
 press *Add admin*, and they can reach `/admin` immediately — no rebuild, no
-redeploy, no `event.yaml` edit.
+redeploy, no `.env` edit.
 
 Two kinds of admin appear in the list:
 
 | Source | Where it lives | Removable from the panel? |
 | --- | --- | --- |
-| `event.yaml`'s `admins` | baked into the image at build time | **no** — marked `event.yaml` |
+| `.env`'s `ADMIN_LOGINS` | read from the environment at startup | **no** — restart to change; marked `.env` |
 | Added on this tab | `ctf:admin:admins` in Redis | yes |
 
-**A baked admin cannot be revoked here, and that is the point.** It is the
-recovery path: no sequence of clicks, and no compromised admin session, can
-lock every organizer out of the panel. If you genuinely need to remove one,
-edit `event.yaml` and rebuild — the same cost as adding one used to be.
+**A bootstrap admin cannot be revoked here, and that is the point.** It is
+the recovery path: no sequence of clicks, and no compromised admin session,
+can lock every organizer out of the panel. If you genuinely need to remove
+one, edit `ADMIN_LOGINS` in `.env` and restart — the same cost as adding one
+used to be.
 
-You *can* remove yourself, and the panel asks first. It is safe because a
-baked admin always remains.
+You *can* remove yourself, and the panel asks first. It is safe because, if
+`ADMIN_LOGINS` contains at least one login, a bootstrap admin remains.
 
 Only an admin can create an admin; there is no self-service path in. Every
 grant and revocation is written to the same audit log as the rest of the
@@ -792,8 +795,8 @@ panel's changes, recording who did it and when.
 **If Redis is unavailable**, runtime grants stop resolving and those admins
 get a 403 — the access check fails **closed**, deliberately, and deliberately
 unlike the freeze read, which fails *open* so a Redis blip cannot drop live
-submissions. A baked admin still gets in, because that check never touches
-Redis at all — which is exactly when you most need the panel.
+submissions. A bootstrap admin still gets in, because that check never
+touches Redis at all — which is exactly when you most need the panel.
 
 ## Archiving and replaying an event
 
@@ -1662,8 +1665,10 @@ org, an OAuth app, or a real contestant PR? One command:
 
 This generates a throwaway `.env.dev-stack` if you have no `.env` (never
 touches or overwrites a real one), builds the scorer image locally from
-`scorer/` and the app image from `apps/web/` (falling back to
-`event.yaml.example` if you have no `event.yaml` yet), brings up `redis`,
+`scorer/` and the app image from `apps/web/` (the app takes no build-time
+config; the throwaway `.env.dev-stack` gets starter `ADMIN_LOGINS` and
+`GITHUB_ORG` values from an `event.yaml` or the shipped `event.yaml.example`
+if one is lying around, and leaves both blank otherwise), brings up `redis`,
 `srh`, `scorer`, `app` and `caddy`, and seeds a few demo players onto the
 leaderboard through the scorer's real bearer-authed `POST /score` — the same
 endpoint a scored PR hits, so it exercises the real validation and Redis-write
@@ -1685,11 +1690,13 @@ Tear down with `./scripts/dev-stack down` (keeps seeded data in the Redis
 volume for next time) or `./scripts/dev-stack down --wipe` (also drops it).
 
 **What this does not do:** sign you in. `/admin` needs a real session whose
-GitHub login is in `event.yaml`'s `admins`, which needs a real GitHub OAuth
-app — there is no local bypass for that boundary, and the script does not add
-one. `dev-stack up` tells you exactly what to add (an OAuth app's client
-id/secret in `.env`, your login in `admins`) to unlock sign-in and `/admin` on
-top of the leaderboard/challenge-browsing experience it gives you immediately.
+GitHub login is in `ADMIN_LOGINS`, which needs a real GitHub OAuth app —
+there is no local bypass for that boundary, and the script does not add one.
+`dev-stack up` tells you exactly what to add: an OAuth app's client
+id/secret and your login in `ADMIN_LOGINS`, written to `.env` when you have
+one or to the generated `.env.dev-stack` otherwise. Edit that file, then run
+`./scripts/dev-stack down && ./scripts/dev-stack up` to apply it — a restart,
+not a rebuild, since `ADMIN_LOGINS` and the OAuth settings are read at start.
 
 ## Known limitations
 

@@ -7,10 +7,6 @@
   },
   "packageManager": "pnpm@11.25.0",
   "scripts": {
-    "generate:config": "node scripts/generate-event-config.mjs",
-    "predev": "pnpm generate:config",
-    "prebuild": "pnpm generate:config",
-    "pretest": "pnpm generate:config",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
@@ -33,7 +29,6 @@
     "eslint-config-next": "16.3.4",
     "tailwindcss": "^4",
     "typescript": "^6",
-    "vitest": "^4.1.11",
-    "yaml": "^2.5.0"
+    "vitest": "4.1.11"
   }
 }

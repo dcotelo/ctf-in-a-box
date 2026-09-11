@@ -7,9 +7,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 vi.mock("server-only", () => ({}));
 vi.mock("next/server", () => ({ connection: async () => {} }));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
-// The page now reads GITHUB_ORG through bootstrap-env rather than the
-// eventConfig mock below (that mock's own `githubOrg` field no longer feeds
-// the page — kept here only because other eventConfig fields still do).
+// The page reads GITHUB_ORG through bootstrap-env, not from event config.
 vi.mock("@/lib/bootstrap-env", () => ({ getGithubOrg: () => "OWASP-CTF" }));
 vi.mock("@/lib/admin-store", () => ({
   // See how-to-play/page.test.tsx's copy of this comment: `getResolvedModules`
@@ -24,25 +22,9 @@ vi.mock("@/lib/admin-store", () => ({
     secureDevTargets: ["dvwa"],
   }),
 }));
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Two Module CTF",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [
-      { id: "secure-development", targets: ["dvwa"], scoreIngest: "poll" },
-      { id: "quiz" },
-    ],
-    targets: ["dvwa"],
-    admins: [],
-  },
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => ["secure-development", "quiz"].includes(id),
 }));
 
 import HowToPlay, { generateMetadata } from "@/app/(site)/how-to-play/page";

@@ -9,29 +9,12 @@
 // Everything with no fallback (the uppercase tagline, the hero paragraph, the
 // numbered steps, the CTA) stays absent rather than being invented.
 //
-// The fixture inverts the usual mock direction: the event config enables the
+// The fixture inverts the usual mock direction: the module set enables the
 // quiz, but `getModuleHome` is stubbed to return nothing, so this exercises
 // "enabled module, no home block" rather than "no modules at all". Own file
 // because `vi.mock` hoists per file.
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "Bare CTF",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "OWASP-CTF",
-    discordUrl: "",
-    modules: [{ id: "quiz" }],
-    targets: [],
-    admins: [],
-  },
-}));
 
 vi.mock("server-only", () => ({}));
 // The redesigned landing reads the session (for the state-aware primary CTA),
@@ -54,12 +37,16 @@ vi.mock("@/lib/admin-store", () => ({
   // `getResolvedModules` falls back to the baked shim's ALL-module
   // `defaultModuleIds` unless this names the fixture's own set.
   // `eventIdentity` is config v2's source for the event name (issue #386,
-  // PR 1b) — `@/lib/event-config`'s `name` above no longer feeds it.
+  // PR 1b).
   getAdminSettings: async () => ({
     moduleOverrides: {},
     enabledModuleIds: ["quiz"],
     eventIdentity: { eventName: "Bare CTF" },
   }),
+}));
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => id === "quiz",
 }));
 // Real getResolvedModules (the module is genuinely enabled and resolvable);
 // only the home lookup is emptied.

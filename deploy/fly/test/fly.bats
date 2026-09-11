@@ -769,10 +769,6 @@ ENV
   [ -z "$(grep -E '^  url:' "$REPO/event.yaml.example")" ]
 }
 
-@test "a leftover event.url fails the app build rather than being ignored" {
-  grep -qF 'event.yaml sets `event.url`' "$REPO/apps/web/scripts/generate-event-config.mjs"
-}
-
 @test "ctf-setup reads the URL from .env, not from event.yaml" {
   # It renders the leaderboard link into every fork's score comment. Reading a
   # stale event.url left sign-in working while contestants got a dead link.

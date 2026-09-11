@@ -41,6 +41,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# stale from pre-#386 checkouts; remove after v0.6
+src/lib/event-config.generated.ts
+
 # Security-review artifacts, generated locally by the defending-code reference
 # harness. These stay out of the repo on purpose: this repository is public,
 # and the findings/triage files describe unpatched weaknesses in a site that is
@@ -54,5 +57,3 @@ VULN-FINDINGS.md
 TRIAGE.json
 TRIAGE.md
 PATCHES/
-
-src/lib/event-config.generated.ts

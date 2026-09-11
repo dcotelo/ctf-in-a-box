@@ -11,7 +11,7 @@
 # would undo that discipline locally.
 help:
 	@echo "Targets (pick the area you touched; AGENTS.md is the authority):"
-	@echo "  registries            KNOWN_MODULES / target lists must agree; no Docker"
+	@echo "  registries            target lists must agree; no Docker"
 	@echo "  test-sync             sync unit tests"
 	@echo "  test-scorer           scorer unit tests, vacuous-pass gate, offline acceptance loop"
 	@echo "  lint-app              app: install + eslint"

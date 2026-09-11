@@ -1,22 +1,28 @@
 /**
  * Test double for `@/lib/enabled-modules` — resolves every module question the
- * way the file's OWN fixture already answers it, so a test keeps one source of
- * truth for "which modules does this event run".
+ * way a fixture's `@/lib/modules` mock (if any) already answers it, via that
+ * mock's `isModuleEnabled` export. This is not a single source of truth: a
+ * fixture that also mocks `@/lib/admin-store` (e.g. an `enabledModuleIds`
+ * field on a stubbed `getAdminSettings`) is stating a second, independent
+ * answer to the same question — `getAdminSettingsSnapshot` below just proxies
+ * to whatever the fixture mocked there, and never reads or reconciles it
+ * against `isModuleEnabled`. Keeping the two declarations in agreement is the
+ * fixture's job, not this shim's.
  *
  * Why a double is needed at all: the real resolver calls `connection()` to keep
  * itself out of Next's build-time prerender, and `connection()` throws outside
  * a request scope. A unit test calling the leaderboard fold or a page function
  * directly has no request scope, so the real module cannot run there.
  *
- * Why it reads through `@/lib/modules` or `@/lib/event-config` rather than
- * taking a set: the fixtures express enablement two different ways — most
- * mock `@/lib/event-config` and declare `modules: [...]` directly, while a few
- * mock `@/lib/modules` itself and stub `isModuleEnabled`. Delegating to
- * whichever is present means neither has to be rewritten, and neither can
- * drift from the enablement the rest of the file assumes. `bakedModuleIds` no
- * longer exists on `@/lib/modules` (issue #386 removed the baked set), so this
- * now reads the fixture's `@/lib/event-config` module list directly instead of
- * a derived registry export.
+ * Why it reads through `@/lib/modules` rather than taking a set directly: a
+ * fixture that wants a NON-default module set stubs `isModuleEnabled` there —
+ * `@/lib/modules` has no such export in production (`bakedModuleIds` and
+ * `isModuleEnabled` both died with the event.yaml bake, issue #386), so this
+ * only ever sees it on a file that mocked `@/lib/modules` itself, typically
+ * via `importOriginal` so the rest of the real registry survives. A fixture
+ * that mocks NOTHING here gets the SHIPPED single-module set — see
+ * `bakedIds`'s final fallback below for why that, and not "every known
+ * module", is the right default.
  *
  * A test that wants a RUNTIME set DIFFERENT from the baked one must not use
  * this — mock `@/lib/enabled-modules` inline with the set it wants, which is
@@ -24,7 +30,6 @@
  * pre-#175 behaviour in tests that predate runtime enablement, not to model it.
  */
 import * as modules from "@/lib/modules";
-import * as eventConfigModule from "@/lib/event-config";
 import type { ModuleId } from "@/lib/modules";
 
 // Restated rather than imported: a file that mocks `@/lib/modules` may not
@@ -32,6 +37,18 @@ import type { ModuleId } from "@/lib/modules";
 // to filter through the fixture's own `isModuleEnabled`. `modules.test.ts`
 // pins the real vocabulary.
 const KNOWN: readonly ModuleId[] = ["secure-development", "quiz", "classic", "ai"];
+
+// The double's own "nothing mocked" default — deliberately NOT the same
+// thing as `enabled-modules.ts`'s real `defaultEnabledModules(process.env)`
+// (secure-development with SCORE_IMAGE set, otherwise nothing). This double
+// exists to stand in for the event.yaml bake this repo used to ship (issue
+// #386's PR 3A deleted the bake itself, not the fixtures written against
+// it): every event this kit had shipped enabled secure-development alone, so
+// a fixture that names no set at all gets exactly that one module — never
+// "every registered module", which no shipped event has ever run and which
+// silently widens a test's live set the moment it stops stubbing
+// `isModuleEnabled` (PR 3A review round 1, finding I1).
+const SHIPPED_DEFAULT: readonly ModuleId[] = ["secure-development"];
 
 /** Reads an export that the file's mock may not define at all.
  *
@@ -48,19 +65,17 @@ function tryRead<T>(source: object, name: string): T | undefined {
 }
 
 function bakedIds(): ModuleId[] {
-  // `isModuleEnabled` FIRST, and the order is load-bearing. A fixture that
-  // stubs it is stating the enablement it wants tested, and that stub has to
-  // win; a fixture that only mocks `@/lib/event-config` gets no `isModuleEnabled`
-  // stub at all, so this branch is right in both cases. Reading the
-  // event-config module list first would get the second case right and
-  // silently ignore the first, which reads as a page not 404ing when the
-  // test just said its module was disabled.
+  // A fixture that stubs `isModuleEnabled` is stating the enablement it wants
+  // tested, and that stub wins; a fixture that mocks nothing here gets the
+  // SHIPPED single-module set (`SHIPPED_DEFAULT`, see its own comment) — NOT
+  // `enabled-modules.ts`'s real "nothing disabled" default, which this double
+  // does not model at all (that default is `defaultEnabledModules(process.env)`,
+  // driven by `SCORE_IMAGE`, and every runtime-enablement test that cares
+  // about it mocks `@/lib/enabled-modules` directly instead of using this
+  // double — see the file header).
   const isEnabled = tryRead<(id: ModuleId) => boolean>(modules, "isModuleEnabled");
   if (typeof isEnabled === "function") return KNOWN.filter((id) => isEnabled(id));
-  const declaredConfig = tryRead<{ modules?: readonly { id: ModuleId }[] }>(eventConfigModule, "eventConfig");
-  const declared = declaredConfig?.modules;
-  if (Array.isArray(declared)) return declared.map((m) => m.id);
-  return [...KNOWN];
+  return [...SHIPPED_DEFAULT];
 }
 
 export const defaultModuleIds: readonly ModuleId[] = KNOWN;

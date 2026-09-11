@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
-# Proves what a kit event.yaml still drives at BUILD time versus what is a
-# runtime /admin setting now, on this branch. `github.org` is still baked in:
-# the app's challenge fork links must follow it rather than a hardcoded
-# OWASP-CTF (self-hosted contestants must fork the org the kit actually
-# created, not the upstream canonical one). The event's name and which
-# Secure Development targets run are BOTH runtime /admin settings now (issue
-# #386) and are not baked at all, so a build with no Redis behind it must
-# fail open to their spec defaults — the name, and all six targets — rather
-# than render nothing, an error, or a name baked from this file.
+# Proves what the app reads at BUILD time versus at RUNTIME now that config
+# v2 has deleted the event.yaml bake (issue #386 part 4). The app image no
+# longer takes an EVENT_CONFIG_B64 build arg at all — everything that used to
+# be baked (the admin allowlist, the GitHub fork org, the event's name, which
+# Secure Development targets run) is now read at request time, from `.env`
+# (ADMIN_LOGINS, GITHUB_ORG) or from /admin settings in Redis (name, targets).
+# So a single image is built ONCE, and every scenario below is a different
+# runtime `docker run -e ...` against that same image, not a different build.
 #
-# `modules.secure-development.targets` below is deliberately baked in and
-# deliberately INERT (config v2 PR2, #386): which Secure Development targets
-# run is an admin-panel setting read from Redis at request time, not a
-# build-time one, and with no Redis behind this build every one of the six
-# targets.tsv targets renders regardless of what this file says. This script
-# pins that: DVWA and VAmPI (named in the config below) AND WebGoat (not
-# named at all) all render — the config's `targets:` list is not read. The
-# reverse — that the admin-chosen subset actually narrows what renders — is
-# pinned by the /challenges page's own vitest suite, not here.
+# The event's name and which Secure Development targets run are runtime
+# /admin settings (issue #386) and are not baked at all, so a build with no
+# Redis behind it must fail open to their spec defaults — the name, and all
+# six targets — rather than render nothing, an error, or a name baked from
+# this file.
+#
+# The six `targets.tsv` targets are NOT gated by anything this script passes:
+# which Secure Development targets run is an admin-panel setting read from
+# Redis at request time, and with no Redis behind this run every one of them
+# renders regardless. This script pins that: DVWA and VAmPI AND WebGoat all
+# render even though nothing here names any of them. The reverse — that the
+# admin-chosen subset actually narrows what renders — is pinned by the
+# /challenges page's own vitest suite, not here.
 #
 # ChallengeGrid (the /challenges app list) is a Client Component, but its
 # server parent reads the live target list from Redis (`getEnabledApps`) and
@@ -28,18 +31,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CFG=$(mktemp)
-cat > "$CFG" <<'YAML'
-event: { name: "Acceptance CTF", start: 2026-10-01T09:00:00-03:00, end: 2026-10-01T18:00:00-03:00 }
-github: { org: acceptance-org }
-modules:
-  secure-development:
-    targets: [dvwa, vampi]
-YAML
-
 cleanup() {
   docker rm -f web-acceptance web-default web-noscorer >/dev/null 2>&1 || true
-  rm -f "$CFG"
 }
 trap cleanup EXIT
 
@@ -52,14 +45,14 @@ wait_for_html() {
   done
 }
 
-B64=$(base64 < "$CFG" | tr -d '\n')
 # A fixed, obviously-synthetic sha, so the /health assertion below is checking
 # that THIS build arg arrived rather than that some sha did. `git rev-parse`
 # would pass even if the arg were dropped and the route fell back to a value it
 # read some other way.
 ACCEPTANCE_REV=abcdef123456
+# ONE build, no EVENT_CONFIG_B64 — the app image no longer takes it. Every
+# scenario below reuses this same image with different runtime env.
 docker build -f apps/web/Dockerfile -t ctf-web:acceptance \
-  --build-arg EVENT_CONFIG_B64="$B64" \
   --build-arg APP_BUILD_REV="$ACCEPTANCE_REV" \
   --build-arg APP_BUILT_AT=2026-01-01T00:00:00Z .
 docker run -d --name web-acceptance -p 3100:3000 \
@@ -85,22 +78,22 @@ echo "--- identity fails open to the default name (no Redis behind this run)"
 expect_in "$HOME_HTML" "<title>OWASP CTF</title>" "landing page title is not the default event name without settings"
 echo "--- no DC34 branding"
 if echo "$HOME_HTML$CHALLENGES_HTML" | grep -qi "DEF CON"; then echo "FAIL: DC34 leaked"; exit 1; fi
-echo "--- all six targets render; event.yaml's targets: list is inert (#386 PR 2)"
-# With no Redis behind this build, the app has no secureDevTargets to read
-# and defaults to all six — DVWA and VAmPI (the two named above) AND WebGoat
-# (never named) must all render. Which targets actually run is chosen in
-# /admin at request time, not baked in here; that subset behaviour is pinned
-# by the /challenges page's own vitest suite, not this script.
+echo "--- all six targets render; no Redis behind this run means no admin-chosen subset"
+# With no Redis behind this run, the app has no secureDevTargets to read and
+# defaults to all six — DVWA and VAmPI AND WebGoat must all render even
+# though nothing above named any of them. Which targets actually run is
+# chosen in /admin at request time; that subset behaviour is pinned by the
+# /challenges page's own vitest suite, not this script.
 expect_in "$CHALLENGES_HTML" "DVWA" "target DVWA not rendered"
 expect_in "$CHALLENGES_HTML" "VAmPI" "target VAmPI not rendered"
-expect_in "$CHALLENGES_HTML" "WebGoat" "target WebGoat not rendered (targets: in event.yaml should be inert)"
+expect_in "$CHALLENGES_HTML" "WebGoat" "target WebGoat not rendered"
 
-echo "--- fork links use GITHUB_ORG from the environment, not a hardcoded OWASP-CTF"
-expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/DVWA" "fork link does not use github.org"
-expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/VAmPI" "fork link does not use github.org"
-expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/WebGoat" "fork link does not use github.org"
+echo "--- fork links use GITHUB_ORG, not a hardcoded OWASP-CTF"
+expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/DVWA" "fork link does not use GITHUB_ORG"
+expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/VAmPI" "fork link does not use GITHUB_ORG"
+expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/WebGoat" "fork link does not use GITHUB_ORG"
 if echo "$CHALLENGES_HTML" | grep -q "github.com/OWASP-CTF/"; then
-  echo "FAIL: custom-org build still links OWASP-CTF forks"; exit 1
+  echo "FAIL: custom-org run still links OWASP-CTF forks"; exit 1
 fi
 
 echo "--- with a scorer image, secure-development is the only default board"
@@ -166,25 +159,34 @@ expect_in "$NOSCORER_HTML" "An organizer switches them on in the admin panel." "
 code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:3102/challenges)
 if [ "$code" != "404" ]; then echo "FAIL: /challenges returned $code without a scorer image, want 404"; exit 1; fi
 
-echo "--- default build is neutral (no DEF CON, name OWASP CTF)"
-docker build -f apps/web/Dockerfile -t ctf-web:default-check . >/dev/null
+echo "--- default run (no GITHUB_ORG) is neutral (no DEF CON, name OWASP CTF)"
+# SAME image as web-acceptance — this is a runtime env difference, not a
+# rebuild: config v2 has nothing left for a second build to bake.
 docker run -d --name web-default -p 3101:3000 \
   -e BETTER_AUTH_SECRET=acceptance-app-secret-32-characters-min -e BETTER_AUTH_URL=http://localhost:3101 \
-  -e SCORE_IMAGE=ghcr.io/example/score:acceptance ctf-web:default-check
+  -e SCORE_IMAGE=ghcr.io/example/score:acceptance ctf-web:acceptance
 DEFAULT_HTML=$(wait_for_html http://localhost:3101/)
 DEFAULT_CHALLENGES_HTML=$(wait_for_html http://localhost:3101/challenges)
-if echo "$DEFAULT_HTML" | grep -qi "DEF CON"; then echo "FAIL: default build carries DC34"; exit 1; fi
+if echo "$DEFAULT_HTML" | grep -qi "DEF CON"; then echo "FAIL: default run carries DC34"; exit 1; fi
 # "OWASP CTF" alone is vacuous: the landing page's evaluator card hardcodes
 # that string in prose regardless of the event's runtime identity. Assert the
 # actual title tag, like the identity-fails-open check near the top of this
 # script does.
-expect_in "$DEFAULT_HTML" "<title>OWASP CTF</title>" "default build does not carry the neutral name in the page title"
+expect_in "$DEFAULT_HTML" "<title>OWASP CTF</title>" "default run does not carry the neutral name in the page title"
 
-echo "--- with no GITHUB_ORG the default build renders bare repo names and no fork link"
-expect_in "$DEFAULT_CHALLENGES_HTML" "DVWA" "default build did not render the DVWA repo name"
+echo "--- with no GITHUB_ORG, /challenges renders bare repo names and no fork link"
+# forkUrl(org, id) returns null for an empty org (apps.ts) — no OWASP-CTF
+# fallback any more, since there is nothing baked to fall back to. The page
+# renders the bare repo name instead of a link.
+expect_in "$DEFAULT_CHALLENGES_HTML" "DVWA" "default run's /challenges does not render the DVWA repo name"
+if echo "$DEFAULT_CHALLENGES_HTML" | grep -q "acceptance-org"; then
+  echo "FAIL: default run's /challenges links acceptance-org even though GITHUB_ORG was not set"; exit 1
+fi
+# "DVWA" above also matches the challenge card's title text, so it passes
+# whether or not a fork link rendered. Assert no fork link at all — for ANY
+# org, not just acceptance-org, so a leftover/mistaken org value still fails.
 if echo "$DEFAULT_CHALLENGES_HTML" | grep -qE 'github\.com/[^"]+/DVWA'; then
-  echo "FAIL: default build still links a DVWA fork although GITHUB_ORG is unset"
-  exit 1
+  echo "FAIL: default run's /challenges renders a DVWA fork link even though GITHUB_ORG was not set"; exit 1
 fi
 
 echo "ACCEPTANCE PASS"

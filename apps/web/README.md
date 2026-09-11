@@ -1,6 +1,6 @@
 # apps/web — the contestant app
 
-The web app contestants and organizers use during an OWASP CTF event: GitHub sign-in, the challenge boards, leaderboard, profile, teams, paid hints and the `/admin` panel. Event name, dates, location and branding come from the kit's `event.yaml`, baked in at build time via `EVENT_CONFIG_B64` (see [Rebuilding the app after a config change](../../docs/hosting.md#rebuilding-the-app-after-a-config-change)) — nothing event-specific is hardcoded here.
+The web app contestants and organizers use during an OWASP CTF event: GitHub sign-in, the challenge boards, leaderboard, profile, teams, paid hints and the `/admin` panel. Event name, tagline, dates, location, contact and Discord invite are runtime `/admin` → Event settings, not build-time config; `ADMIN_LOGINS` and `GITHUB_ORG` are `.env` keys read at container start (see [docs/hosting.md](../../docs/hosting.md#environment-variables)) — nothing event-specific is baked into the image.
 
 It was vendored from `OWASP-CTF/ctf-owasp-org` on 2026-08-14; `VENDORED.md` records the delta (Vercel bits stripped, DynamoDB retired, the AWS Lambda replaced by the kit's local scorer). `AGENTS.md` next to this file points at the kit's operating manual, and `DESIGN_SYSTEM.md` is the palette and token authority.
 
@@ -19,7 +19,7 @@ The app runs four modules; each brings its own page, API routes, admin tab and l
 | `classic` | `/flags` | Flag submissions on a category tile board |
 | `ai` | `/ai` | Externally hosted AI challenges that report back to the box |
 
-`event.yaml` seeds which modules are on; organizers switch them **at runtime** from `/admin`'s Event tab, and Redis holds the live set (ADR 52). The module contract is [docs/modules.md](../../docs/modules.md); the per-module operator guides are in [docs/operations.md](../../docs/operations.md). An event with `secure-development` off has no scorer, so `getLeaderboardSourceMode()` (`src/lib/leaderboard/source.ts`) ignores `LEADERBOARD_SOURCE` and builds the board from the module overlays alone.
+Module enablement lives entirely in `/admin`'s Event tab; organizers switch modules **at runtime**, and Redis holds the live set (ADR 52). The module contract is [docs/modules.md](../../docs/modules.md); the per-module operator guides are in [docs/operations.md](../../docs/operations.md). An event with `secure-development` off has no scorer, so `getLeaderboardSourceMode()` (`src/lib/leaderboard/source.ts`) ignores `LEADERBOARD_SOURCE` and builds the board from the module overlays alone.
 
 ## Features
 
@@ -28,7 +28,7 @@ The app runs four modules; each brings its own page, API routes, admin tab and l
 - **Profile** (`/profile`) — requires sign-in; per-module progress plus the team card.
 - **Teams** — join by code, create, or leave. Default cap **4 players per team** (`TEAM_MAX_MEMBERS` in `src/lib/team-limits.ts`), changeable from `/admin` (1–100, ADR 45); joins are enforced in one atomic Lua `EVAL`, so the cap cannot be raced. One team per player.
 - **Paid hints** — reveal costs **10 points** by default (`HINT_COST` in `src/lib/hint-defaults.ts`), set from `/admin`. Charging is idempotent inside one `EVAL`, keyed by the session login; the scorer's totals are never decremented — the penalty is an overlay (`withHintPenalties`, floored at 0). Hints are on by default and toggled from `/admin`; there is no env var for either.
-- **Admin panel** (`/admin`) — module switches, freeze and scheduled scoring window, team cap, hint policy, activity log, insights, event export/import. Admins come from `event.yaml` plus runtime grants.
+- **Admin panel** (`/admin`) — module switches, freeze and scheduled scoring window, team cap, hint policy, activity log, insights, event export/import. Admins come from `ADMIN_LOGINS` in `.env`, read at container start (restart, not rebuild, to change).
 
 ## Tech stack
 
@@ -50,7 +50,7 @@ corepack pnpm install --frozen-lockfile
 corepack pnpm dev            # http://localhost:3000
 ```
 
-`predev`/`prebuild`/`pretest` run `scripts/generate-event-config.mjs`, which writes `src/lib/event-config.generated.ts` from `EVENT_CONFIG=<path to event.yaml>` when set and from neutral defaults otherwise. Copy `.env.example` to `.env.local` for what `pnpm dev` reads: `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL=http://localhost:3000` (also sign the gate cookie), and a `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` pair if you need sign-in (callback `<BETTER_AUTH_URL>/api/auth/callback/github`). Everything else is optional and falls back to mocks; `.env.example` documents each variable, and `docker-compose.yml`'s `app` service is the authority for what a real event sets. Runtime variables are read at start, so a change means a container restart — or a rebuild for anything baked (`event.yaml`).
+There is no `predev`/`prebuild`/`pretest` generator step — the app reads no build-time config at all. Copy `.env.example` to `.env.local` for what `pnpm dev` reads: `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL=http://localhost:3000` (also sign the gate cookie), and a `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` pair if you need sign-in (callback `<BETTER_AUTH_URL>/api/auth/callback/github`). Everything else is optional and falls back to mocks; `.env.example` documents each variable, and `docker-compose.yml`'s `app` service is the authority for what a real event sets. Every variable, including `ADMIN_LOGINS` and `GITHUB_ORG`, is read at start, so a change means only a container restart, never a rebuild.
 
 ## Testing
 
@@ -100,7 +100,6 @@ src/
     leaderboard/            # Source adapters (mock/lambda/upstash/empty) + overlays
     upstash.ts              # Redis REST client (pipeline + EVAL)
     __tests__/              # vitest, incl. the *.lua.upstash.test.ts grading suites
-scripts/generate-event-config.mjs   # event.yaml → event-config.generated.ts
 ```
 
 ## Things worth knowing before you touch them

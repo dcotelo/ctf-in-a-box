@@ -30,11 +30,10 @@ vi.mock("@/lib/admin-store", async (orig) => ({
   seedDemoData,
 }));
 vi.mock("@/lib/leaderboard/source", () => ({ getLeaderboardSource }));
-// `targets` is not optional on a real eventConfig — lib/apps.ts reads it at
-// module load to build `enabledApps`. A mock that omits it crashes any import
-// graph that reaches apps.ts, which is a trap for the next unrelated import
-// rather than a property of this suite.
-vi.mock("@/lib/event-config", () => ({ eventConfig: { name: "Test Event", modules: [], targets: [] } }));
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: () => false,
+}));
 
 import { GET } from "@/app/api/admin/status/route";
 import { POST } from "@/app/api/admin/settings/route";
@@ -46,8 +45,8 @@ const req = (body?: unknown) =>
   new Request("http://x/api/admin/settings", { method: "POST", body: JSON.stringify(body ?? {}) });
 
 // The reset route confirms against the RUNTIME name (issue #386), read via
-// getAdminSettings().eventIdentity + resolveSite — not the baked event.yaml
-// name mocked above — see the "runtime event name" cases below.
+// getAdminSettings().eventIdentity + resolveSite — there is no baked
+// event.yaml name any more — see the "runtime event name" cases below.
 const SETTINGS = {
   paused: true,
   hintsEnabled: null,
@@ -215,7 +214,7 @@ describe("POST /api/admin/reset", () => {
     expect(resetEvent).not.toHaveBeenCalled();
   });
 
-  it("rejects the baked event.yaml name once the organizer renamed the event", async () => {
+  it("rejects a stale confirm name once the organizer renamed the event", async () => {
     requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
     const res = await resetPOST(rreq({ confirm: "Test Event" }));
     expect(res.status).toBe(400);

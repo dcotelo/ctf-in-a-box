@@ -25,26 +25,9 @@ vi.mock("@/lib/admin-store", () => ({
     enabledModuleIds: ["secure-development", "quiz", "classic"],
   }),
 }));
-
-vi.mock("@/lib/event-config", () => ({
-  eventConfig: {
-    name: "OWASP CTF test",
-    theme: "",
-    dates: "",
-    location: "",
-    ctfStartsAt: null,
-    url: "http://localhost:3000",
-    contactEmail: "",
-    githubOrg: "owasp-ctf-test",
-    discordUrl: "",
-    modules: [
-      { id: "secure-development", targets: ["juice-shop", "dvwa"], scoreIngest: "poll" },
-      { id: "quiz" },
-      { id: "classic" },
-    ],
-    targets: ["juice-shop", "dvwa"],
-    admins: [],
-  },
+vi.mock("@/lib/modules", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/modules")>()),
+  isModuleEnabled: (id: string) => ["secure-development", "quiz", "classic"].includes(id),
 }));
 
 import Faq from "@/app/(site)/faq/page";
