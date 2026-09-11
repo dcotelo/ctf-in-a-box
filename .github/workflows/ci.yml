@@ -141,7 +141,7 @@ jobs:
             echo "docs=$(m "^docs/|^\.github/workflows/pages\.yml$CI")"
             # The six files this check compares, plus the check script
             # itself and this workflow file (either is a behavior change).
-            echo "registries=$(m "^(sync/src/config\.js|setup/ctf-setup\.sh|apps/web/scripts/generate-event-config\.mjs|apps/web/src/lib/modules\.ts|apps/web/src/lib/apps\.ts|scorer/src/targets\.js|event\.yaml\.example|scripts/check-module-registries\.mjs|\.github/workflows/ci\.yml)$")"
+            echo "registries=$(m "^(sync/src/config\.js|setup/ctf-setup\.sh|apps/web/src/lib/modules\.ts|apps/web/src/lib/apps\.ts|scorer/src/targets\.js|event\.yaml\.example|scripts/check-module-registries\.mjs|\.github/workflows/ci\.yml)$")"
           } >> "$GITHUB_OUTPUT"
 
   sync-tests:
