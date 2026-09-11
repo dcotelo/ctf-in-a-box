@@ -175,6 +175,50 @@ commit, then read what it left, before you call the PR ready or move on.
 "CI is green" is not "CodeRabbit is done" — the two are independent gates and
 CodeRabbit lands second.
 
+**Talking to CodeRabbit is a rationed, incremental conversation — one
+`@coderabbitai review` per pushed batch, and let it resolve its own threads.**
+`.coderabbit.yaml` turns on `auto_review` and `auto_incremental_review`, so
+CodeRabbit is *configured* to review every push to an eligible pull request —
+one that is not a draft, targets `main`, and has no ignored title keyword
+(`[WIP]`, `[skip-review]`, `DO NOT REVIEW`, the rest of the list under
+`auto_review.ignore_title_keywords`); a draft or a `[WIP]` title is skipped by
+design and needs no nudge until it is eligible. But this is a public repo
+under 10 stars on the free OSS plan, where even an eligible push's automatic
+pass is routinely skipped (the check reads `Review skipped: manual review
+required for this OSS repository`) or rate-limited. So after a push to an
+eligible PR, read the CodeRabbit check before you say anything to it: if a
+pass is running or has completed for that commit, do not trigger another — a
+manual `review` on top of an automatic one is a duplicate that burns the
+allowance; only when it reads that `Review skipped` status do you trigger the
+review, with exactly one top-level `@coderabbitai review` comment. One more
+reason a push can go unreviewed: `auto_pause_after_reviewed_commits` is unset
+in `.coderabbit.yaml`, so CodeRabbit's default applies and automatic reviews
+pause after five reviewed commits on a PR (`0` would disable the pause; the
+organization-level setting may change the number) — after that point every
+further push needs the same single `@coderabbitai review`. A review,
+however it started, is *incremental* — it reads only
+the commits pushed since its last pass, re-verifies its open threads, and
+resolves the ones the push addressed; no reply is needed on those. Every
+push and every `review`/`full review` command consumes one review from an
+hourly OSS allowance (1–10 per developer, scoped per repository), so batch
+the fixes for a round into one push and never retry on a timer: after a
+`Review rate limited` reply, post `@coderabbitai rate limit`, which answers
+with when the next review is available, and trigger once then. Reply
+*inside* a thread only for a finding it left open that is actually fixed
+(name the commit and the file:line so its re-verify has something to check)
+or to decline with a reason — the exception, per the paragraph above. Two
+commands short-circuit the gate and are off-limits here: `@coderabbitai
+approve` submits its approval past its own pre-merge checks, and
+`@coderabbitai resolve` closes every thread it owns regardless of whether
+anything changed — the latter is at most a final sweep *after* its re-review
+left nothing substantive. For a rapid multi-push session, `@coderabbitai
+pause` first, then `resume` plus one `review` at the end. Use `@coderabbitai
+full review` instead of `review` when a rebase or squash rewrote commits it
+had already reviewed, or when a push reshaped the PR's overall logic enough
+that a commit-by-commit pass would miss the whole — it costs the same one
+review from the allowance but re-reads the entire PR. Reference:
+docs.coderabbit.ai/reference/review-commands and /management/plans.
+
 ## Conventions & gotchas
 
 These are real failure modes this project has hit — treat them as rules, not
