@@ -41,15 +41,9 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 // admin-panel.tsx now reads GITHUB_ORG through bootstrap-env, not the
 // (now-dead) event.yaml bake — the org context's `githubOrg` below comes
-// from this, not from an eventConfig mock this file never had. `envAdmins`
-// is also read from this module (the forbidden-wall's ADMIN_LOGINS-empty
-// notice) and must be mocked alongside it, or replacing the module wholesale
-// leaves it `undefined` and the gate-false branch throws — an empty set
-// matches the real function's behavior with no ADMIN_LOGINS set, same as
-// this suite got before this module existed.
+// from this, not from an eventConfig mock this file never had.
 vi.mock("@/lib/bootstrap-env", () => ({
   getGithubOrg: () => "acceptance-org",
-  envAdmins: () => new Set(),
 }));
 // admin-panel.tsx now also reads getEnabledApps() (lib/enabled-apps.ts,
 // issue #386 PR 2) for the setup context's target list. Its own settings
@@ -60,7 +54,12 @@ vi.mock("@/lib/bootstrap-env", () => ({
 // whatever `getAdminSettings` above resolves to per test, which is exactly
 // the settings mock these fixtures already control.
 vi.mock("next/server", () => ({ connection: async () => {} }));
-vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
+// `listEnvAdmins` is read alongside `requireAdmin` (the forbidden-wall's
+// ADMIN_LOGINS-empty-or-unparseable notice, admin-panel.tsx) and must be
+// mocked alongside it, or replacing the module wholesale leaves it
+// `undefined` and the gate-false branch throws — an empty array matches the
+// real function's behavior with no ADMIN_LOGINS set.
+vi.mock("@/lib/admin-auth", () => ({ requireAdmin, listEnvAdmins: () => [] }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings, getSyncStatus }));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules, getModuleSetup }));
 // admin-panel.tsx now also reads getSite() (issue #386) for the header/reset

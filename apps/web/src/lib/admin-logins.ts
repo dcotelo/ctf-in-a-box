@@ -5,12 +5,11 @@
 
 /**
  * The GitHub-login shape: 1-39 chars, alphanumeric or single hyphens, not
- * leading or trailing. A COPY of `LOGIN_RE` in `admin-admins.ts` — the same
- * rule the runtime-grant write path enforces — not an import of it: that
- * module imports `upstash.ts`, which is `server-only`, and this module must
- * stay client-safe. Keep the two definitions in sync if the shape ever
- * changes. */
-const LOGIN_RE = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i;
+ * leading or trailing. Exported as the canonical, client-safe home for this
+ * rule — `admin-admins.ts` (the runtime-grant write path) imports it from
+ * here rather than keeping its own copy, since this module carries no
+ * `server-only`/`upstash.ts` dependency for it to collide with. */
+export const LOGIN_RE = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i;
 
 /**
  * "  Alice, bob,,ALICE " -> {"alice","bob"}. Login joins are
@@ -34,4 +33,22 @@ export function parseAdminLogins(raw: string | undefined): ReadonlySet<string> {
     if (login && LOGIN_RE.test(login)) logins.add(login);
   }
   return logins;
+}
+
+/**
+ * Count of non-empty, non-login-shaped entries in `raw` — a typo'd
+ * `ADMIN_LOGINS=alice@example.com` counts as 1, but a blank entry from a
+ * stray comma (`"alice,,bob"`) does not: that is formatting, not a mistake
+ * worth a warning. Used only to report HOW MANY entries were dropped —
+ * never the entries themselves, which may contain something an organizer
+ * would not want echoed into a log (an email address, a pasted secret).
+ */
+export function countInvalidAdminLogins(raw: string | undefined): number {
+  if (!raw) return 0;
+  let dropped = 0;
+  for (const part of raw.split(",")) {
+    const login = part.trim();
+    if (login && !LOGIN_RE.test(login)) dropped++;
+  }
+  return dropped;
 }

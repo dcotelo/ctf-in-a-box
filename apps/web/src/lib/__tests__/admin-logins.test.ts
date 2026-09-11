@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseAdminLogins } from "@/lib/admin-logins";
+import { countInvalidAdminLogins, parseAdminLogins } from "@/lib/admin-logins";
 
 describe("parseAdminLogins", () => {
   it("lower-cases, trims, drops empties and dedupes", () => {
@@ -21,5 +21,26 @@ describe("parseAdminLogins", () => {
 
   it("mixed input keeps only the entries shaped like a GitHub login", () => {
     expect([...parseAdminLogins("alice@example.com, Bob, -carol, dave")]).toEqual(["bob", "dave"]);
+  });
+});
+
+describe("countInvalidAdminLogins", () => {
+  it("is 0 for unset, empty, and comma-only input — no entries to be wrong", () => {
+    for (const v of [undefined, "", " , ,"]) expect(countInvalidAdminLogins(v)).toBe(0);
+  });
+
+  it("is 0 when every non-empty entry parses as a login", () => {
+    expect(countInvalidAdminLogins("Alice, bob")).toBe(0);
+  });
+
+  // The M6 case: a typo'd email address parses to an empty set (the wall's
+  // "empty" wording used to be misleading here), but it is one dropped
+  // entry, not zero.
+  it("counts each non-login-shaped entry once", () => {
+    expect(countInvalidAdminLogins("alice@example.com, -bob, carol-, d--e")).toBe(4);
+  });
+
+  it("counts only the invalid entries in a mixed list", () => {
+    expect(countInvalidAdminLogins("alice@example.com, Bob, -carol, dave")).toBe(2);
   });
 });

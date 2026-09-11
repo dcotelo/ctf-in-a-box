@@ -1,4 +1,10 @@
 import { upstashPipeline } from "@/lib/upstash";
+import { LOGIN_RE } from "@/lib/admin-logins";
+
+// Re-exported so the routes/stores that already import `LOGIN_RE` from here
+// (the write path's natural home) do not need to also know about
+// `admin-logins.ts`.
+export { LOGIN_RE };
 
 /**
  * The READ half of runtime admin grants (issue #147), deliberately in its own
@@ -19,12 +25,6 @@ import { upstashPipeline } from "@/lib/upstash";
  *  Redis set, not a settings field: it is a collection with add/remove
  *  semantics, and membership is the whole value. */
 export const ADMIN_ADMINS_KEY = "ctf:admin:admins";
-
-/** A GitHub login: 1-39 chars, alphanumeric or single hyphens, not leading or
- *  trailing. Validated at the write boundary so the set cannot accumulate junk
- *  that no one can ever match against — an add is refused loudly rather than
- *  stored and silently ineffective. */
-export const LOGIN_RE = /^[a-z\d](?:[a-z\d]|-(?=[a-z\d])){0,38}$/i;
 
 /** Stored admins, lowercased. THROWS if Redis is unreachable — callers on the
  *  authorization path must let that propagate so the failure denies rather

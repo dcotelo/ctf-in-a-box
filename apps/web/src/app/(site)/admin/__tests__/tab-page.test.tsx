@@ -27,7 +27,10 @@ vi.mock("next/headers", () => ({ headers: () => new Headers() }));
 // is left real so it falls through to the `getAdminSettings` mock below,
 // same as page.test.tsx's copy of this comment.
 vi.mock("next/server", () => ({ connection: async () => {} }));
-vi.mock("@/lib/admin-auth", () => ({ requireAdmin }));
+// `listEnvAdmins` is read alongside `requireAdmin` (the forbidden-wall's
+// ADMIN_LOGINS-empty-or-unparseable notice, admin-panel.tsx) — same reason
+// as page.test.tsx's copy of this comment.
+vi.mock("@/lib/admin-auth", () => ({ requireAdmin, listEnvAdmins: () => [] }));
 vi.mock("@/lib/admin-store", () => ({ getAdminSettings, getSyncStatus }));
 vi.mock("@/lib/resolved-modules", () => ({ getResolvedModules, getModuleSetup }));
 // Same reason as page.test.tsx: admin-panel.tsx now reads getSite() too, and

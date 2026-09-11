@@ -1,5 +1,5 @@
 import "server-only";
-import { parseAdminLogins } from "@/lib/admin-logins";
+import { countInvalidAdminLogins, parseAdminLogins } from "@/lib/admin-logins";
 
 /**
  * The two bootstrap identities config v2 reads straight from the process
@@ -28,7 +28,21 @@ export function getGithubOrg(env: Record<string, string | undefined> = process.e
  *  that module for why logins are lowercased. `ADMIN_LOGINS` unset or empty
  *  means the same thing: nobody. `admin-auth.ts` treats an empty result as
  *  FAIL CLOSED, not "no allowlist configured, allow everyone" — see its
- *  comment. */
+ *  comment.
+ *
+ *  When one or more entries didn't parse as a GitHub login (a typo'd email
+ *  address, a stray colon), this logs ONE `console.warn` naming only the
+ *  COUNT — never the raw entries, which might be something the organizer
+ *  would not want echoed into a log. This module is called once, at
+ *  `admin-auth.ts`'s module load, so the warning fires at most once per
+ *  process rather than once per request. */
 export function envAdmins(env: Record<string, string | undefined> = process.env): ReadonlySet<string> {
-  return parseAdminLogins(env.ADMIN_LOGINS);
+  const raw = env.ADMIN_LOGINS;
+  const dropped = countInvalidAdminLogins(raw);
+  if (dropped > 0) {
+    console.warn(
+      `[bootstrap-env] ADMIN_LOGINS dropped ${dropped} entr${dropped === 1 ? "y" : "ies"} that did not parse as a GitHub login`,
+    );
+  }
+  return parseAdminLogins(raw);
 }
