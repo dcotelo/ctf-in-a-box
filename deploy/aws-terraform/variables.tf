@@ -110,9 +110,12 @@ variable "github_org" {
   // contestant at a fork that has no org to live in. Left unset either way it
   // would be a plan-time silence; this turns it into the same plan-time
   // sentence scorer_image/sync_image already get.
+  // trimspace, for admin_logins' reason: a value that is not empty is not
+  // therefore a GitHub org. `" "` would pass `!= ""`, reach both task
+  // definitions as-is, and name a fork path nothing can resolve.
   validation {
-    condition     = !var.enable_secure_development || var.github_org != ""
-    error_message = "github_org must be set when Secure Development is enabled, in either ingest mode — sync exits at startup without GITHUB_ORG (see sync/src/config.js), and push mode leaves the app with no org to build fork links from."
+    condition     = !var.enable_secure_development || trimspace(var.github_org) != ""
+    error_message = "github_org must name a GitHub org when Secure Development is enabled, in either ingest mode — blank or whitespace-only will not do: sync exits at startup without a usable GITHUB_ORG (see sync/src/config.js), and push mode leaves the app with no org to build fork links from."
   }
 }
 

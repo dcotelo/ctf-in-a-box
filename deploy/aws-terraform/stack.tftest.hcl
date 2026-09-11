@@ -197,6 +197,20 @@ run "push_mode_without_a_github_org_is_refused_too" {
   expect_failures = [var.github_org]
 }
 
+// Not empty is not the same as set: `" "` reaches both task definitions
+// verbatim and names a fork path nothing resolves. Same shape as the
+// admin_logins blank-roster run.
+run "a_whitespace_only_github_org_is_refused" {
+  command = plan
+
+  variables {
+    enable_secure_development = true
+    github_org                = " "
+  }
+
+  expect_failures = [var.github_org]
+}
+
 // The complement: push mode WITH an org plans cleanly, so the rule above
 // cannot be satisfied by refusing push mode outright.
 run "push_mode_with_a_github_org_is_accepted" {
