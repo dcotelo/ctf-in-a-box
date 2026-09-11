@@ -109,7 +109,8 @@ vi.mock("@/lib/modules", () => ({
   DOCS_URL: "https://docs.example/",
 }));
 
-import AdminControls from "@/app/(site)/admin/admin-controls";
+import AdminControls, { nextEventNameAfterSave } from "@/app/(site)/admin/admin-controls";
+import { DEFAULT_EVENT_IDENTITY } from "@/lib/event-identity";
 
 /** What the server hands down: registry defaults already merged with any
  *  organizer override (see lib/resolved-modules.ts). Note `title`/`blurb` —
@@ -538,6 +539,73 @@ describe("AdminControls reset confirmation — eventName plumbing", () => {
     const confirmArg = setConfirm.mock.calls[0][0] as { onConfirm: () => void };
     confirmArg.onConfirm();
     expect(doReset).toHaveBeenCalledWith("Plumbed CTF");
+  });
+});
+
+// CodeRabbit round 1, #389 (id 3985696440): the reset confirmation phrase
+// above is only correct AT MOUNT. A rename saved through the Identity
+// section must update it too, or an organizer who just renamed the event can
+// type the (correct, freshly-shown) new name into the reset modal and still
+// get "confirmation does not match the event name" back from the server,
+// which checks against `getSite()` — the STORED name, not the stale prop
+// admin-panel.tsx resolved before the rename.
+//
+// `nextEventNameAfterSave` is the pure decision `applyField` defers to, so
+// it's pinned directly here (repo has no jsdom/testing-library, so a live
+// re-render can't be observed — see this file's header comment); the
+// captureTree case below then proves `AdminControls` actually wires it up:
+// the real `applyField` closure, given a stubbed successful `eventName`
+// save, posts exactly the patch it was asked to and does not throw doing so.
+describe("nextEventNameAfterSave", () => {
+  it("leaves the name alone for any other field's save", () => {
+    expect(nextEventNameAfterSave("hintCost", "Old CTF", { eventIdentity: { eventName: "Ignored CTF" } })).toBe(
+      "Old CTF",
+    );
+  });
+
+  it("takes the STORED name from the response when the save was an eventName save", () => {
+    expect(nextEventNameAfterSave("eventName", "Old CTF", { eventIdentity: { eventName: "New CTF" } })).toBe(
+      "New CTF",
+    );
+  });
+
+  it("falls back to the spec default when the save cleared the override", () => {
+    expect(nextEventNameAfterSave("eventName", "Old CTF", { eventIdentity: {} })).toBe(
+      DEFAULT_EVENT_IDENTITY.eventName,
+    );
+  });
+});
+
+describe("AdminControls reset confirmation — post-rename save", () => {
+  it("posts the renamed value through the real applyField closure the Event tab was given", async () => {
+    const tree = captureTree(AdminControls, {
+      viewerLogin: "organizer",
+      eventName: "Old CTF",
+      defaultModuleIds: ["secure-development"],
+      secureDevAvailable: true,
+      initial: settings,
+      modules: twoModules,
+    } as Parameters<typeof AdminControls>[0]);
+
+    const eventTabEl = findElement(tree, (el) => el.type === AdminEventTab);
+    expect(eventTabEl).not.toBeNull();
+    const { applyField } = eventTabEl!.props as AdminEventTabProps;
+
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ settings: { ...settings, eventIdentity: { eventName: "New CTF" } } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const ok = await applyField("eventName", { eventName: "New CTF" }, "Event name");
+
+    expect(ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/admin/settings");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ eventName: "New CTF" });
+
+    vi.unstubAllGlobals();
   });
 });
 
