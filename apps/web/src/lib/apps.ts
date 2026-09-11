@@ -1,7 +1,9 @@
-// The six vulnerable-app targets contestants patch. challengeCount/maxPoints/
-// stars are a static FALLBACK — the challenges page prefers the live counts
-// from `${LEADERBOARD_API_URL}/challenges` (see lib/challenges.ts) and only
-// shows these when that fetch fails. They are pinned to the vendored rubric's
+// The six vulnerable-app targets contestants patch. The catalogue here is
+// static — which of the six an event actually runs lives in
+// lib/enabled-apps.ts, not here. challengeCount/maxPoints/stars are a static
+// FALLBACK — the challenges page prefers the live counts from
+// `${LEADERBOARD_API_URL}/challenges` (see lib/challenges.ts) and only shows
+// these when that fetch fails. They are pinned to the vendored rubric's
 // catalogues by lib/__tests__/apps-catalogue.test.ts; regenerate them after any
 // `scripts/vendor-rubric.sh` run rather than editing them by hand.
 
@@ -119,12 +121,6 @@ export const apps: AppMeta[] = [
 
 export const appsById = Object.fromEntries(apps.map((a) => [a.id, a])) as Record<AppId, AppMeta>;
 
-/** Targets enabled for this event (config ∩ catalogue), canonical order. */
-export const enabledApps: AppMeta[] = apps.filter((a) => eventConfig.targets.includes(a.id));
-export const enabledAppsById = Object.fromEntries(enabledApps.map((a) => [a.id, a])) as Partial<Record<AppId, AppMeta>>;
-export const enabledTotalChallenges = enabledApps.reduce((n, a) => n + a.challengeCount, 0);
-export const enabledTotalMaxPoints = enabledApps.reduce((n, a) => n + a.maxPoints, 0);
-
 /** Joins app names for prose: "DVWA" / "DVWA, and Juice Shop" / "DVWA, Juice Shop, and WebGoat". */
 export function joinAppNames(names: string[]): string {
   return names.length > 1 ? `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}` : (names[0] ?? "");
@@ -137,6 +133,6 @@ export function joinAppNames(names: string[]): string {
  * is actually one of the event's enabled targets. Otherwise the page falls back
  * to a target-agnostic version of the same loop.
  */
-export function workedExampleVariant(apps: AppMeta[] = enabledApps): "juice-shop" | "generic" {
+export function workedExampleVariant(apps: AppMeta[]): "juice-shop" | "generic" {
   return apps.some((a) => a.id === "juice-shop") ? "juice-shop" : "generic";
 }
