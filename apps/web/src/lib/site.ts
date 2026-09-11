@@ -56,7 +56,13 @@ export type Site = {
 export function resolveSite(overrides: EventIdentityOverrides | null): Site {
   const o = overrides ?? {};
   return {
-    name: o.eventName ?? DEFAULT_EVENT_IDENTITY.eventName,
+    // `||`, not `??`, for eventName ONLY: an empty string is a valid "no
+    // override" state for the other four fields (each hides its own UI
+    // element when blank), but an empty <title>/headline is never desirable.
+    // The app's own write path already guards against writing "" here
+    // (validation), so this only matters for a hand-run
+    // `HSET ctf:admin:settings eventName ""`.
+    name: o.eventName || DEFAULT_EVENT_IDENTITY.eventName,
     theme: o.eventTheme ?? DEFAULT_EVENT_IDENTITY.eventTheme,
     location: o.eventLocation ?? DEFAULT_EVENT_IDENTITY.eventLocation,
     contactEmail: o.eventContact ?? DEFAULT_EVENT_IDENTITY.eventContact,

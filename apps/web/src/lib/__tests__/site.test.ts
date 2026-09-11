@@ -32,6 +32,16 @@ describe("resolveSite", () => {
     expect(resolveSite(null).owaspPrivacyUrl).toMatch(/^https:\/\/policy\.owasp\.org\//);
     expect(resolveSite(null).privacyContactEmail).toBe("privacy@owasp.com");
   });
+  // Finding M1: an empty stored eventName (only reachable by a hand-run HSET
+  // — the app's own write path already rejects "") must still fall back to
+  // the default rather than render a blank <title>/headline. The other four
+  // identity fields keep their existing "'' is a legitimate no-override" `??`
+  // semantics — pinned here with eventTheme so a future edit can't collapse
+  // `||` onto every field by mistake.
+  it("falls back to the default name on an empty stored eventName, but leaves the other fields' blank-is-valid semantics alone", () => {
+    expect(resolveSite({ eventName: "" }).name).toBe("OWASP CTF");
+    expect(resolveSite({ eventTheme: "" }).theme).toBe("");
+  });
 });
 
 describe("getSite", () => {
