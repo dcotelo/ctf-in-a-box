@@ -81,6 +81,7 @@ import Home from "@/app/page";
 import { generateMetadata } from "@/app/layout";
 import { DEFAULT_EVENT_IDENTITY } from "@/lib/event-identity";
 import { apps } from "@/lib/apps";
+import OAuthErrorNotice from "@/components/oauth-error-notice";
 
 const html = await Home().then(renderToStaticMarkup);
 const metadata = await generateMetadata();
@@ -226,10 +227,7 @@ describe("event identity reaches the landing page", () => {
 describe("GitHub OAuth callback error banner", () => {
   it("shows friendly copy and an alert region for application_suspended", async () => {
     const withError = await Home({
-      searchParams: Promise.resolve({
-        error: "application_suspended",
-        error_description: "Your application has been suspended. Please visit https://github.com/contact.",
-      }),
+      searchParams: Promise.resolve({ error: "application_suspended" }),
     }).then(renderToStaticMarkup);
     expect(withError).toContain('role="alert"');
     expect(withError).toContain("suspended");
@@ -252,18 +250,38 @@ describe("GitHub OAuth callback error banner", () => {
     expect(withError).toContain("organizer");
   });
 
-  it("falls back to the raw (capped, control-stripped) description for an unrecognized error code", async () => {
-    // The control character sits inside the first 300 characters (not past
-    // the cap): if stripping didn't run, it would break up the run of "x"s
-    // this asserts on, so the assertion actually proves stripping happened
-    // rather than the char merely falling outside the truncated window.
-    const raw = `${"x".repeat(10)}\u0007${"x".repeat(400)}`;
+  // Pre-merge finding ("Secrets & Challenge Data In Logs"): GitHub's
+  // `error_description` is arbitrary provider-supplied text and must NEVER
+  // reach the rendered page — not sanitized, not truncated, not at all —
+  // whether the code is one this app recognizes or not.
+  it("never renders a supplied error_description, known code or not", async () => {
+    const sentinel = "TOTALLY-DISTINCTIVE-DESCRIPTION-TEXT-4f8c";
+    const withKnownCode = await Home({
+      searchParams: Promise.resolve({ error: "access_denied", error_description: sentinel }),
+    }).then(renderToStaticMarkup);
+    const withUnknownCode = await Home({
+      searchParams: Promise.resolve({ error: "server_error", error_description: sentinel }),
+    }).then(renderToStaticMarkup);
+    expect(withKnownCode).not.toContain(sentinel);
+    expect(withUnknownCode).not.toContain(sentinel);
+  });
+
+  it("renders the generic message plus the safely-shaped code for an unrecognized error code", async () => {
     const withError = await Home({
-      searchParams: Promise.resolve({ error: "server_error", error_description: raw }),
+      searchParams: Promise.resolve({ error: "server_error" }),
     }).then(renderToStaticMarkup);
     expect(withError).toContain('role="alert"');
-    expect(withError).not.toContain(raw);
-    expect(withError).toContain("x".repeat(300));
+    expect(withError).toContain("GitHub sign-in did not complete.");
+    expect(withError).toContain("server_error");
+  });
+
+  it("renders the generic message WITHOUT the code when the code isn't GitHub's shape (letters/digits/_/- only, <=40 chars)", async () => {
+    const withError = await Home({
+      searchParams: Promise.resolve({ error: "weird.code!" }),
+    }).then(renderToStaticMarkup);
+    expect(withError).toContain('role="alert"');
+    expect(withError).toContain("GitHub sign-in did not complete.");
+    expect(withError).not.toContain("weird.code!");
   });
 
   // Review finding: FRIENDLY_COPY is a plain object literal, and `error` is
@@ -272,21 +290,26 @@ describe("GitHub OAuth callback error banner", () => {
   // `hasOwnProperty`) resolves to an inherited Object.prototype member, which
   // is truthy — so `??` never falls back, and `{message}` becomes a
   // function/object, which React refuses to render as a child (an
-  // unauthenticated 500 on `/` from a crafted URL). These pin the fallback.
-  it("falls back to the generic message for a prototype-polluting error code, and does not throw", async () => {
+  // unauthenticated 500 on `/` from a crafted URL). `constructor` and
+  // `__proto__` both happen to be shape-valid codes (letters and
+  // underscores), so these also pin that the generic-plus-code path renders
+  // them as plain text instead of throwing.
+  it("falls back to the generic message (with the code) for a prototype-polluting error code, and does not throw", async () => {
     const withError = await Home({
       searchParams: Promise.resolve({ error: "constructor" }),
     }).then(renderToStaticMarkup);
     expect(withError).toContain('role="alert"');
     expect(withError).toContain("GitHub sign-in did not complete.");
+    expect(withError).toContain("constructor");
   });
 
-  it("falls back to the sanitized raw description for __proto__, and does not throw", async () => {
+  it("falls back to the generic message (with the code) for __proto__, and does not throw", async () => {
     const withError = await Home({
-      searchParams: Promise.resolve({ error: "__proto__", error_description: "x" }),
+      searchParams: Promise.resolve({ error: "__proto__" }),
     }).then(renderToStaticMarkup);
     expect(withError).toContain('role="alert"');
-    expect(withError).toContain(">x<");
+    expect(withError).toContain("GitHub sign-in did not complete.");
+    expect(withError).toContain("__proto__");
   });
 
   it("renders no alert region when there are no error params", () => {
@@ -304,6 +327,66 @@ describe("GitHub OAuth callback: repeated query parameters", () => {
     }).then(renderToStaticMarkup);
     expect(withError).toContain("cancelled"); // access_denied's own copy
     expect(withError).not.toContain("organizer"); // redirect_uri_mismatch's
+  });
+});
+
+describe("GitHub OAuth callback: retry destination", () => {
+  // Home() is an async Server Component: calling it returns the JSX element
+  // tree, not rendered markup. A React element is a plain object with a
+  // `type` and `props`, so the notice's computed `callbackURL` prop can be
+  // read directly off the tree — no DOM, no testing-library, just the same
+  // "probe the element" approach the rest of this repo's tests use, one
+  // level earlier than a rendered string allows.
+  function findElement(
+    node: unknown,
+    predicate: (el: { type: unknown; props: Record<string, unknown> }) => boolean,
+  ): { type: unknown; props: Record<string, unknown> } | null {
+    if (node == null || typeof node !== "object") return null;
+    if (Array.isArray(node)) {
+      for (const child of node) {
+        const found = findElement(child, predicate);
+        if (found) return found;
+      }
+      return null;
+    }
+    const el = node as { type?: unknown; props?: { children?: unknown } };
+    if ("type" in el && predicate(el as { type: unknown; props: Record<string, unknown> })) {
+      return el as { type: unknown; props: Record<string, unknown> };
+    }
+    if (el.props && "children" in el.props) return findElement(el.props.children, predicate);
+    return null;
+  }
+
+  async function retryDestination(
+    searchParams: Record<string, string | string[] | undefined>,
+  ): Promise<unknown> {
+    const element = await Home({ searchParams: Promise.resolve(searchParams) });
+    const notice = findElement(element, (n) => n.type === OAuthErrorNotice);
+    return notice?.props.callbackURL;
+  }
+
+  it("carries a valid next through as the retry destination", async () => {
+    expect(await retryDestination({ error: "access_denied", next: "/challenges" })).toBe("/challenges");
+  });
+
+  it("falls back to /profile for a protocol-relative next", async () => {
+    expect(await retryDestination({ error: "access_denied", next: "//evil.example" })).toBe("/profile");
+  });
+
+  it("falls back to /profile for an absolute-URL next", async () => {
+    expect(await retryDestination({ error: "access_denied", next: "https://evil.example" })).toBe(
+      "/profile",
+    );
+  });
+
+  it("falls back to /profile when next is missing", async () => {
+    expect(await retryDestination({ error: "access_denied" })).toBe("/profile");
+  });
+
+  it("uses the FIRST value when next is duplicated", async () => {
+    expect(
+      await retryDestination({ error: "access_denied", next: ["/challenges", "/leaderboard"] }),
+    ).toBe("/challenges");
   });
 });
 

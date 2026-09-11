@@ -14,13 +14,16 @@
 // first paint — the opposite of teamless-notice's reasoning for skipping it.
 
 import { authClient } from "@/lib/auth-client";
-import { postSigninCallbackURL } from "@/lib/post-signin";
+import { oauthErrorCallbackURL, postSigninCallbackURL } from "@/lib/post-signin";
 
-const MAX_DESCRIPTION_LENGTH = 300;
-
-/** Friendly, human sentences for the callback errors worth naming — GitHub's
- *  own `error_description` for these is written for a developer, not a
- *  contestant. Anything else falls back to the raw (sanitized) description. */
+/** Friendly, human sentences for the callback errors worth naming. GitHub's
+ *  own `error_description` for these — and for every other code — is NEVER
+ *  rendered: it is arbitrary provider-supplied prose with no guarantee about
+ *  its contents (CodeRabbit pre-merge finding, "Secrets & Challenge Data In
+ *  Logs" — a description is exactly the kind of value that shouldn't reach a
+ *  page render, a screen share, or a log capture). Only GitHub's own CODE —
+ *  a short, fixed enum of OAuth error identifiers — ever reaches the DOM,
+ *  and only once it has been checked against a strict allowlist shape. */
 const FRIENDLY_COPY: Record<string, string> = {
   application_suspended:
     "This event's GitHub sign-in app has been suspended, so sign-in can't complete right now. Let an organizer know.",
@@ -30,25 +33,25 @@ const FRIENDLY_COPY: Record<string, string> = {
     "GitHub's sign-in configuration doesn't match this site yet, so it refused the request. Let an organizer know.",
 };
 
-/** Strips ASCII control characters and caps the length. The input is a raw
- *  query parameter GitHub set — React escapes it for display either way, but
- *  a value with embedded control characters or unbounded length has no
- *  business rendering as prose. */
-function sanitizeDescription(raw: string): string {
-  let out = "";
-  for (const ch of raw) {
-    const code = ch.codePointAt(0) ?? 0;
-    if (code >= 0x20 && code !== 0x7f) out += ch;
-  }
-  return out.length > MAX_DESCRIPTION_LENGTH ? `${out.slice(0, MAX_DESCRIPTION_LENGTH)}…` : out;
-}
+const GENERIC_MESSAGE = "GitHub sign-in did not complete.";
+
+/** GitHub's own OAuth error codes are short machine identifiers
+ *  (`access_denied`, `server_error`, …): letters, digits, underscore, hyphen,
+ *  capped well above any real one. A value outside that shape is not a code
+ *  this app trusts as GitHub's own, so none of it — not even the sanitized
+ *  parts — is shown; the generic sentence renders alone. */
+const CODE_SHAPE = /^[A-Za-z0-9_-]{1,40}$/;
 
 export default function OAuthErrorNotice({
   error,
-  description,
+  callbackURL = "/profile",
 }: {
   error: string;
-  description?: string;
+  /** Where "Try again" retries toward — the destination the failed sign-in
+   *  was originally headed for. Recovered from `?next=` by the caller
+   *  (page.tsx) and re-validated there with `sanitizeNext` before being
+   *  passed here; this component trusts it no further than that. */
+  callbackURL?: string;
 }) {
   // `error` is an attacker-controlled query parameter. FRIENDLY_COPY is a
   // plain object literal, so `FRIENDLY_COPY[error]` for `error=constructor`
@@ -60,9 +63,9 @@ export default function OAuthErrorNotice({
   // OWN keys, never the prototype chain.
   const message = Object.hasOwn(FRIENDLY_COPY, error)
     ? FRIENDLY_COPY[error]
-    : description
-      ? sanitizeDescription(description)
-      : "GitHub sign-in did not complete.";
+    : CODE_SHAPE.test(error)
+      ? `${GENERIC_MESSAGE} (code: ${error})`
+      : GENERIC_MESSAGE;
   return (
     <div
       role="alert"
@@ -74,14 +77,14 @@ export default function OAuthErrorNotice({
         type="button"
         className="ds-link mt-2 text-sm"
         onClick={() => {
-          // The same action the header's own sign-in button runs (auth-nav.tsx),
-          // with an explicit errorCallbackURL so a repeat failure round-trips
-          // back here instead of better-auth's default (a route this app
-          // doesn't have a page for).
+          // The same action the header's own sign-in button runs
+          // (auth-nav.tsx), carrying the SAME destination through both legs
+          // so a retry that also fails lands back here with the destination
+          // still intact rather than collapsing to /profile.
           void authClient.signIn.social({
             provider: "github",
-            callbackURL: postSigninCallbackURL("/profile"),
-            errorCallbackURL: "/",
+            callbackURL: postSigninCallbackURL(callbackURL),
+            errorCallbackURL: oauthErrorCallbackURL(callbackURL),
           });
         }}
       >

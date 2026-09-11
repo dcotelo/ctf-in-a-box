@@ -35,6 +35,7 @@ import { DOCS_URL, type HomeContext } from "@/lib/modules";
 import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { getModuleHome, getNavLinks, getResolvedModules } from "@/lib/resolved-modules";
 import { hasTeam } from "@/lib/team-store";
+import { sanitizeNext } from "@/lib/post-signin";
 import { getSite } from "@/lib/site";
 
 /** The one action this visitor should take, by auth × team × phase. */
@@ -59,11 +60,11 @@ function primaryAction(
   return { label: "See the standings", href: "/leaderboard" };
 }
 
-/** Next hands every searchParams value as `string | string[] | undefined` —
+/** Next gives every searchParams value as `string | string[] | undefined` —
  *  a repeated `?error=x&error=y` arrives as an array, which would reach
- *  `FRIENDLY_COPY[error]` in `OAuthErrorNotice` as an object rather than a
- *  matching key (CodeRabbit finding). The first value wins, matching how a
- *  browser or GitHub would only ever set one in practice. */
+ *  `FRIENDLY_COPY[error]` as an object rather than a matching key (CodeRabbit
+ *  finding). The first value wins, matching how a browser/GitHub would only
+ *  ever set one in practice. */
 function firstOf(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -74,12 +75,26 @@ export default async function Home({
   /** GitHub's OAuth callback error, when the authorize step fails — a
    *  suspended/deleted OAuth app, a cancelled prompt, or a redirect URI it
    *  doesn't recognize. better-auth's own error redirect (and, for the
-   *  suspended-app case, GitHub itself) lands back on `/` with these. */
-  searchParams?: Promise<{ error?: string | string[]; error_description?: string | string[] }>;
+   *  suspended-app case, GitHub itself) lands back on `/` with these.
+   *  `error_description` is read here but deliberately never rendered —
+   *  see `OAuthErrorNotice` — and `next` is the failed sign-in's own
+   *  destination, round-tripped through `oauthErrorCallbackURL`. */
+  searchParams?: Promise<{
+    error?: string | string[];
+    error_description?: string | string[];
+    next?: string | string[];
+  }>;
 } = {}) {
   const event = await getSite();
   const params = await searchParams;
   const oauthError = firstOf(params?.error) ?? null;
+  // Re-validated here with the SAME rule the outgoing leg used
+  // (`sanitizeNext`) — this arrives through an attacker-influenceable query
+  // string, so it is never trusted merely because `oauthErrorCallbackURL`
+  // wrote it. `error_description` is intentionally not read past this point:
+  // it is arbitrary provider text and must never reach the rendered page
+  // (CodeRabbit pre-merge finding, "Secrets & Challenge Data In Logs").
+  const oauthRetryDestination = sanitizeNext(firstOf(params?.next));
   const catalog = await getChallengeCatalog();
   // The live target list, read once per request (both cache()-wrapped on the
   // same settings snapshot every other live-set question here shares) — see
@@ -239,7 +254,7 @@ export default async function Home({
           )}
 
           {oauthError && (
-            <OAuthErrorNotice error={oauthError} description={firstOf(params?.error_description)} />
+            <OAuthErrorNotice error={oauthError} callbackURL={oauthRetryDestination} />
           )}
 
           <div className="mt-2 flex flex-wrap items-center gap-5">
