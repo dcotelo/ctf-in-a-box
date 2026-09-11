@@ -55,7 +55,8 @@ usage: deploy/fly/deploy.sh [init] [--dry-run] [--env-file .env.fly]
 
 --skip-build reuses the images already in Fly's registry. Use it when only a
   secret or a runtime setting changed — it turns a multi-minute rebuild into
-  a redeploy.
+  a redeploy. NOT safe after changing SCORE_IMAGE: the mirror step is skipped
+  too, so the machine keeps the scorer image already in the registry.
 --dry-run prints every fly command it would run and makes NONE of them.
   Secret VALUES are redacted from that output.
 EOF
@@ -607,6 +608,12 @@ make_volume ctf_data
 # health-check build stamp (config v2, #386) — GITHUB_ORG, ADMIN_LOGINS and
 # everything else are runtime reads that flow through the rendered compose
 # file below, on every deploy, with or without --skip-build.
+#
+# It DOES risk a stale scorer. The `imagetools create` line below is the only
+# thing that copies whatever SCORE_IMAGE names into Fly's registry, and it is
+# skipped along with the builds — so a changed SCORE_IMAGE plus --skip-build
+# either redeploys the previous scorer or names a tag Fly has never seen.
+# Deploy once without the flag after changing it (docs/fly.md says so too).
 # ---------------------------------------------------------------------------
 echo "== 2/5 images"
 

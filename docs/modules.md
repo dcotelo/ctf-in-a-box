@@ -380,17 +380,19 @@ third module isn't mistaken for a fully general n-module platform:
   per-module breakdown, never a separate view. This is unchanged by `quiz` or
   `classic` going live — each added its own breakdown block, not a second or
   third board.
-- **`sync` still doesn't score anything for `quiz` or `classic`, by design,
-  not as a gap.**
+- **`sync` still doesn't score anything for `quiz`, `classic` or `ai`, by
+  design, not as a gap.**
   `sync` has no notion of those ids at all — since config v2 (#386) it reads
   `.env` plus the Secure Development target list in `ctf:admin:settings`, and
   nothing else; it scores `secure-development`
-  alone, because neither app-side module ever produces a score for GitHub to
-  relay in the
-  first place — both grade server-side inside the app's own Redis keys (see
-  the architecture doc). Per-module ingest/rubric plumbing was for a
-  module that needs scorer-mediated scoring; `quiz` and `classic` are proof
-  one doesn't
+  alone, because none of the three app-side modules ever produces a score for
+  GitHub to relay in the
+  first place — all three grade server-side inside the app's own Redis keys
+  (see the architecture doc; `ai` takes its solve reports over its own
+  authenticated app route, never through the scorer). Per-module
+  ingest/rubric plumbing was for a
+  module that needs scorer-mediated scoring; `quiz`, `classic` and `ai` are
+  proof one doesn't
   always need it, not evidence that plumbing is still missing.
 - **No free-text questions, no partial credit, and no per-question
   attempt/cooldown overrides** — single- and multi-select only, all-or-nothing

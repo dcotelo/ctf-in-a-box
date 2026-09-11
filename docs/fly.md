@@ -100,8 +100,16 @@ rebuild?
 ```
 
 Nothing is baked into the app image but the `/health` build stamp, so
-`--skip-build` is always safe: `GITHUB_ORG`, `ADMIN_LOGINS` and everything
-else reach the machine through the rendered compose file on every deploy.
+`--skip-build` never risks a stale *config*: `GITHUB_ORG`, `ADMIN_LOGINS` and
+everything else reach the machine through the rendered compose file on every
+deploy.
+
+**It is safe only while `SCORE_IMAGE` is unchanged.** `--skip-build` skips the
+mirror step as well as the builds, and mirroring is how the scorer image
+`SCORE_IMAGE` names gets into Fly's registry. Point `SCORE_IMAGE` at a new
+image and then deploy with `--skip-build` and the machine either keeps running
+the *previous* scorer or is handed a tag Fly does not have. After changing
+`SCORE_IMAGE`, run a normal `./deploy/fly/deploy.sh` once.
 
 ### Every flag
 

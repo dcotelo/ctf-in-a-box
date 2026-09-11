@@ -193,8 +193,11 @@ also needs:
 - `docker login ghcr.io` with a `write:packages` token. The `org` subcommand
   ends with `docker push ghcr.io/<org>/score:latest`, so it needs write access
   to your own org's packages.
-- A scorer image named by `SCORE_IMAGE`. There is no default, and
-  `ctf-setup org` refuses to run until it is set.
+- A scorer image named by `SCORE_IMAGE`. There is no default: with it empty,
+  `ctf-setup org` says so and skips every fork/mirror/poll step (exit 0 — an
+  app-only event provisions nothing on GitHub and needs no org at all). Set it
+  and the same command provisions all six targets of `setup/targets.tsv`;
+  `/admin` then picks the subset contestants see.
 
 Build your own scorer from the engine in `scorer/` — that is the
 self-contained path and it needs no upstream access:
@@ -355,8 +358,14 @@ fix it by hand, add one line to `.env` and bring the stack back up:
 
 ```sh
 echo "REDIS_PASSWORD=$(openssl rand -hex 24)" >> .env
-docker compose --profile secdev --profile app up -d
+docker compose --profile secdev --profile app up -d   # SCORE_IMAGE set
+docker compose --profile app up -d                    # SCORE_IMAGE empty
 ```
+
+Pick the line that matches your `.env`: `--profile secdev` is added **iff
+`SCORE_IMAGE` is non-empty**, and a quiz-, Classic- or AI-only event has no
+scorer image to pull. (Passing `--profile secdev` without one fails at `up`,
+trying to pull the private upstream fallback.)
 
 Nothing else changes: no data migration, and the `redis-data` volume is
 untouched. Only `redis` itself (its `requirepass`) and `srh` (its connection
@@ -735,7 +744,7 @@ provisioning — is documented in [docs/modules.md](modules.md).
 | What you changed | What it takes |
 |---|---|
 | Anything in `/admin` — modules, targets, identity, schedule, hints, teams, content | Nothing. It is live on the next request. |
-| `ADMIN_LOGINS`, `GITHUB_ORG`, `EVENT_URL`, a secret | Edit `.env`, then `docker compose --profile secdev --profile app up -d` to recreate the containers with the new environment. No rebuild. |
+| `ADMIN_LOGINS`, `GITHUB_ORG`, `EVENT_URL`, a secret | Edit `.env`, then bring the stack back up to recreate the containers with the new environment — `docker compose --profile secdev --profile app up -d` with a `SCORE_IMAGE` set, `docker compose --profile app up -d` without one. No rebuild either way. |
 | `SCORE_IMAGE` (adding or dropping Secure Development's containers) | Edit `.env`, then bring the stack up with — or without — `--profile secdev`. |
 | The app's own code (a kit upgrade) | `docker compose --profile app build app`, then `up -d`. |
 
@@ -769,7 +778,7 @@ the same list, annotated), and `doctor` flags a missing `REDIS_PASSWORD`.
 | `REDIS_PASSWORD` | `redis`, `srh` | **required** (`:?`) | Redis `requirepass`. Unset *or empty* fails `up` at interpolation rather than starting an open Redis; only `srh` can reach `redis:6379`. |
 | `SRH_TOKEN` | `srh`; `app`/`scorer`/`sync` as `UPSTASH_REDIS_REST_TOKEN` | required | Bearer token in front of the Redis REST proxy every service talks to. |
 | `SCORE_INGEST` | compose (Caddyfile choice) | `poll` | `poll` or `push`: mounts `caddy/Caddyfile.<mode>`. Must match the `--profile` you pass. |
-| `SCORE_IMAGE` | `scorer` image; `scripts/dev-stack` and `deploy/fly/render-compose.sh` as the `secdev` switch | `ghcr.io/owasp-ctf/score:latest` (private) | Your scorer image built from `scorer/`. Non-empty also *means* the event runs Secure Development — it picks the `secdev` profile and the default module set. `ctf-setup org` refuses to run until it is set. |
+| `SCORE_IMAGE` | `scorer` image; `scripts/dev-stack` and `deploy/fly/render-compose.sh` as the `secdev` switch | `ghcr.io/owasp-ctf/score:latest` (private) | Your scorer image built from `scorer/`. Non-empty is what makes Secure Development *available*: it adds the `secdev` profile, seeds the first-boot default module set, and permits the `/admin` toggle (`enabledModules` still decides what is live). Empty and `ctf-setup org` skips every fork/mirror/poll step instead of failing; non-empty and it provisions all six targets. |
 | `EVENT_URL` | `caddy` as `EVENT_HOST`; `app` as `BETTER_AUTH_URL` | `http://localhost` | **The** event URL — TLS host, auth callback origin, HTTPS start-up guard, CSRF origin check. `https://` for any real event. |
 | `REDIS_DIR` | `redis` | `/data` | Where the append-only file lives inside the volume. Fly sets `/data/redis` (one volume per machine, see [docs/fly.md](fly.md)). |
 | `STATE_PATH` | `sync` | `/state/state.json` | The poller's cursor file. Fly sets `/data/sync/state.json`. |

@@ -2219,7 +2219,7 @@ it. Both URL forms are rewritten now, with a test for the userinfo one.
 
 ## ADR 43. One URL, and it lives in `.env`, not `event.yaml`
 
-**Status.** Accepted.
+**Status.** Accepted, and amended 2026-09-11 by [ADR 55](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml). The decision itself stands and got broader: `EVENT_URL` in `.env` is still the one URL, and it is still there because it is a *deployment* fact. What changed is the other side of the split — `event.yaml` no longer exists, so every statement below about what that file keeps, what a build refuses to find in it, and which line an existing config has to delete is **historical**. The event's identity, modules and targets are `/admin` settings now; the deployment facts (`EVENT_URL` included) stayed in `.env`, which is what ADR 55 calls this ADR the precedent for.
 
 **Context.** The event's URL existed in two authored places at once:
 `event.yaml`'s `event.url` and `EVENT_URL` in `.env`. Nothing kept them in
@@ -2254,11 +2254,17 @@ The reverse split — deriving `EVENT_URL` from `event.yaml` — was rejected on
 the same ground, and would additionally have put a security-relevant value
 (the CSRF origin, the auth callback) behind YAML parsed with `sed` in bash.
 
-**Consequences.** `event.yaml` keeps its shape as the human, committable
+**Consequences** (as decided; `event.yaml` was deleted by ADR 55 and this
+paragraph is historical from that point on). `event.yaml` keeps its shape as
+the human, committable
 description of an event: name, dates, modules, targets, admins. Everything
 that varies per deployment — URL, secrets, image references, region — lives in
 the env file beside them. Existing configs fail one build and need one line
 deleted; the message says which.
+
+What outlived the file is the split itself: deployment facts in `.env`, event
+facts elsewhere. ADR 55 moved "elsewhere" from a committed YAML file to the
+`ctf:admin:settings` hash behind `/admin`, and `EVENT_URL` did not move at all.
 
 Not merging the two files was considered and rejected. `event.yaml` is a
 structured contract shared by three readers (the app's generator,
@@ -3175,11 +3181,18 @@ value. Concretely —
   would go, while `sync`'s `loadConfig` throws at startup naming the key,
   because for a poller a missing org is a misconfiguration, not "nothing to
   poll".
-- **`SCORE_IMAGE` becomes the Secure Development switch.** Non-empty means the
-  event runs that module: it selects the compose profile, it is the default
-  module set on a first boot, and it gates the admin toggle. Empty means the
-  module's containers never exist and nothing is enabled until an organizer
-  switches something on.
+- **`SCORE_IMAGE` becomes the Secure Development *availability* switch — not
+  the live selector.** Non-empty means the module is available to this
+  deployment: it is what adds the `secdev` compose profile (so the scorer and
+  sync containers exist at all), it seeds the first-boot default module set,
+  and it is what permits the `/admin` toggle. Empty means those containers
+  never exist, the toggle is refused, and nothing is enabled until an organizer
+  switches something on. What is enabled *right now* is always
+  `enabledModules` in `ctf:admin:settings`, set from `/admin` — an available
+  Secure Development module can be switched off there mid-event without
+  touching `.env`, exactly like the other three. Two different questions, and
+  keeping them apart is the point: `.env` says what this box *can* run, the
+  panel says what it *is* running.
 - **Registration stays static code; only *selection* moved.** The `ModuleId`
   registry in `apps/web/src/lib/modules.ts`, the closed `AppId` union in
   `apps.ts`, `sync/src/config.js`'s `TARGETS` and `scorer/src/targets.js` are

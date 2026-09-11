@@ -201,8 +201,8 @@ Pick the doc for what you're doing right now:
 
 - [Hosting](hosting.md) — the guided wizard, prerequisites, poll vs push, the
   GitHub OAuth app, and event config.
-- [Deploy on AWS](aws.md) — single-shot Terraform deploy on one ephemeral EC2
-  box (`apply` up, `destroy` down).
+- [Deploy on AWS](aws.md) — single-shot Terraform deploy onto ECS Fargate with
+  ElastiCache behind an ALB (`apply` up, `destroy` down).
 - [Deploy on fly.io](fly.md) — the whole stack as one Fly machine, running the
   repo's own `docker-compose.yml`, no box to administer (`deploy.sh` up,
   `fly apps destroy` down).
