@@ -328,7 +328,16 @@ fi
 if [ -z "$DRY_RUN" ]; then
   require_fly
   [ -f "$ENV_FILE" ] || { echo "no $ENV_FILE — run: ./deploy/fly/deploy.sh init" >&2; exit 1; }
-  [ -f "$CONFIG" ] || { echo "no $CONFIG — copy event.yaml.example and edit it" >&2; exit 1; }
+  # Config v2 (#386) deleted this file and its example from the repo; the app
+  # reads GITHUB_ORG and ADMIN_LOGINS from the environment now. This module's
+  # bake is removed in part 6, with its bats suite — until then the path
+  # still needs a config file the operator supplies, so say that rather than
+  # pointing at an example that is gone.
+  [ -f "$CONFIG" ] || {
+    echo "no $CONFIG — this deploy path still expects an event config file until #386 part 6 lands." >&2
+    echo "   Pass --config with your own copy; do not deploy from this branch between parts 5 and 6." >&2
+    exit 1
+  }
 fi
 
 echo "== app: $APP (one machine, five containers)"
@@ -374,7 +383,7 @@ case "${SCORE_INGEST_MODE:-poll}" in
     echo "      Nothing on a Fly machine routes POST /score to the scorer (no caddy;" >&2
     echo "      fly.toml exposes only the app on :3000), so every fork's Action would" >&2
     echo "      POST into a 404 and no score would reach the leaderboard. See #373." >&2
-    echo "      Set SCORE_INGEST=poll in $ENV_FILE and match event.yaml's score_ingest." >&2
+    echo "      Set SCORE_INGEST=poll in $ENV_FILE — that is the only copy of the switch." >&2
     exit 1 ;;
   *)
     echo "FAIL: SCORE_INGEST in $ENV_FILE is '$SCORE_INGEST_MODE' — must be poll (push is not supported on Fly, #373)." >&2

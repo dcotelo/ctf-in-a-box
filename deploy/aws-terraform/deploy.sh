@@ -124,14 +124,23 @@ need terraform "read the stack's outputs"
 
 # --- the config bake ---------------------------------------------------------
 #
-# Refused rather than defaulted. A missing event.yaml produces an image with no
-# admins and generic branding, and the failure surfaces hours later as "/admin
-# 403s for everyone" — the most expensive mistake this kit has.
+# Refused rather than defaulted. This path still bakes the file, and a missing
+# one produces an image with no admins and generic branding — a failure that
+# surfaces hours later as "/admin 403s for everyone", the most expensive
+# mistake this kit has.
+#
+# Config v2 (#386) has already deleted the file and its example from the repo:
+# the app takes GITHUB_ORG and ADMIN_LOGINS from the environment now, and this
+# module's bake is removed in part 6 together with its plan test. Until then
+# this path needs a config file you supply yourself, so the refusal names that
+# constraint instead of an example file that no longer exists.
 if [ ! -f "$CONFIG" ]; then
-  echo "FAIL: no event.yaml at $CONFIG" >&2
-  echo "      The app image bakes it at build time; without it the image ships" >&2
-  echo "      an empty admins list and neutral branding. Pass --config, or copy" >&2
-  echo "      event.yaml.example to event.yaml and fill it in." >&2
+  echo "FAIL: no event config at $CONFIG" >&2
+  echo "      This deploy path still bakes one into the app image; without it" >&2
+  echo "      the image ships an empty admins list and neutral branding." >&2
+  echo "      The file is gone from the repo as of #386 and this module moves" >&2
+  echo "      to .env in part 6 — until then, pass --config with your own copy" >&2
+  echo "      and do not deploy from this branch between parts 5 and 6." >&2
   exit 1
 fi
 
