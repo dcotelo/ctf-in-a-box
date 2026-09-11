@@ -8,59 +8,76 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
-- **BREAKING: the app no longer bakes `event.yaml` at build time at all
-  (#386, part 4).** `ADMIN_LOGINS` and `GITHUB_ORG` are now `.env` keys read
-  at runtime — same as every other setting config v2 moved off the build
-  (parts 1-3 below) — instead of the last two keys the image still baked. An
-  empty or unset `ADMIN_LOGINS` locks everyone out of `/admin`, including
-  organizers who used to be in `event.yaml`'s `admins` list; set it to a
-  comma-separated list of GitHub logins and restart, no rebuild needed. An
-  empty or unset `GITHUB_ORG` means `/challenges` renders bare repo names
-  with no fork link, rather than falling back to a baked org.
-  `EVENT_CONFIG_B64` is now ignored by the app image entirely (`sync` still
-  reads its own copy, unaffected by this change); `docker compose build app`
-  still prints an unconsumed `EVENT_CONFIG_B64` build-arg warning until part
-  6 removes the arg. The app also no longer validates `event.yaml` at all —
-  a stale file is silently ignored (`sync` and `setup` still read and
-  validate their own copies until part 5), so a leftover `event.url` or
-  `hints:`/`teams:` block in it is likewise silently ignored rather than
-  failing or warning at build time.
+- **BREAKING: configuration v2 — `event.yaml` is deleted; `.env` bootstraps
+  the box and `/admin` runs the event (#386, [ADR 55](docs/decisions.md)).**
+  One change, shipped over four parts, that replaces two overlapping config
+  planes with two separate ones. Nothing is baked into an image any more, and
+  no image takes a configuration build-arg.
 
-- **BREAKING: which Secure Development targets an event runs is chosen in
-  `/admin`, not by `event.yaml`'s `targets:` key (#386, part 3).**
-  `ctf-setup.sh org` now forks and provisions all six of `setup/targets.tsv`
-  for every event — six forks, six scoring workflows, six package Read
-  grants — unconditionally; the wizard no longer asks which targets to
-  enable. Which of the six contestants actually see (and which the sync
-  poller reads) is instead a runtime setting, **Secure Development →
-  Targets** on the admin panel, defaulting to all six and taking effect on
-  the next page load / next poll tick with no rebuild. At least one target
-  must stay selected. `modules.secure-development.targets` in `event.yaml`
-  is now ignored completely, in any shape (absent, empty, a scalar, an
-  unknown id) — every reader (the app's generator, `sync`, `ctf-setup.sh`)
-  accepts the key without validating or reading it. Event archives now
-  carry `secureDevTargets` and restore it on import; the bundle format
-  bumped to version 2 for it (a legacy v1 archive — one predating this
-  field — still imports, restoring everything else and leaving the stored
-  target list untouched).
+  **Removed.** `event.yaml` and `event.yaml.example`; the `EVENT_CONFIG_B64`
+  build-arg and the `EVENT_CONFIG` env var; `apps/web/Dockerfile`'s config
+  `ARG` and the compose `build.args` entry that fed it;
+  `apps/web/scripts/generate-event-config.mjs` with its generated
+  `event-config.generated.ts` and the `prebuild`/`predev`/`pretest` hooks
+  that ran it; `sync`'s yaml reader and its bind-mounted `/config/event.yaml`;
+  `setup/test/corpus` and the cross-reader corpus suites that pinned the three
+  yaml parsers against each other; the wizard's `--config` flag, its yaml
+  writer, its `KNOWN_MODULES` mirror, its `--targets` flag and its "which
+  modules" question; Fly's `--config` flag; and AWS's `event_yaml_b64`
+  variable.
 
-- **BREAKING: the event's name, tagline, location, contact e-mail and Discord
-  invite are runtime settings edited on the admin Event tab (Identity
-  section) (#386, part 2).** `event.yaml`'s
-  `event.name/theme/location/contact/discord` are no longer read. Defaults:
-  "OWASP CTF" and empty. Event archives now carry name/theme/location and
-  apply them on import.
+  **New in `.env`, read at container start.** `GITHUB_ORG` — the event org for
+  fork links and for the repos `sync` polls; empty renders bare repo names in
+  the app, and makes `sync` refuse to start naming the key. `ADMIN_LOGINS` —
+  a comma-separated list of GitHub logins allowed into `/admin`, matched
+  case-insensitively; empty or unset **locks everyone out**, including
+  organizers who used to be in the `admins` list, so set it and restart (no
+  rebuild). `SCORE_IMAGE` gains a meaning: **non-empty is how a box says it
+  runs Secure Development** — it picks the compose profile, it is the default
+  module set on a first boot, and it gates the module's admin toggle.
 
-- **BREAKING: modules are switched on in `/admin`, not by listing them in `event.yaml` (#386, part 1).**
-  Before an organizer touches the panel, Secure Development is the only
-  board on — and only when the deployment has a `SCORE_IMAGE`; Quiz, Classic
-  and AI start off. Secure Development is now a normal switch, refused only
-  when there is no scorer image. Switching the last board off is allowed;
-  the landing page then says "No boards are open yet". `event.yaml`'s
-  `modules:` block no longer carries Secure Development's `targets` either
-  (see part 3 above) — its only remaining setup-time setting is
-  `score_ingest`. The app container receives `SCORE_IMAGE` from compose,
-  Fly and ECS.
+  **Moved to `/admin`, live, with no restart.** Which modules run: before an
+  organizer touches the panel, Secure Development is the only board on — and
+  only with a `SCORE_IMAGE`; Quiz, Classic and AI start off, and switching the
+  last board off is allowed (the landing page then says "No boards are open
+  yet"). Which Secure Development targets run: `ctf-setup.sh org` now forks
+  and provisions **all six** of `setup/targets.tsv` for every event — six
+  forks, six scoring workflows, six package Read grants — and **Secure
+  Development → Targets** picks the live subset, defaulting to all six, at
+  least one required, taking effect on the next page load and the next poll
+  tick. The event's identity — name, tagline, location, contact e-mail,
+  Discord invite — on the Event tab's Identity section, defaulting to
+  "OWASP CTF" and empty. The event's dates and countdown now derive from the
+  **Scoring opens** / **Scoring closes** schedule rather than a separate
+  field. Event archives carry `secureDevTargets` and name/theme/location and
+  restore them on import (bundle format v2; a v1 archive still imports,
+  leaving the stored target list untouched); contact e-mail and Discord
+  invite are deliberately never exported.
+
+  **Compose profile renamed `poll` → `secdev`.** `scorer` carries
+  `["secdev", "push"]` and `sync` carries `["secdev"]`. Whoever brings the
+  stack up adds `--profile secdev` **iff `SCORE_IMAGE` is non-empty** —
+  `scripts/dev-stack` and `deploy/fly/render-compose.sh` do it for you. The
+  `push` profile is unchanged here (its deprecation is #377).
+
+  **Deploy paths.** Fly and AWS bake nothing and carry `GITHUB_ORG` and
+  `ADMIN_LOGINS` as runtime environment instead: Fly's `deploy.sh init
+  --refresh` now refreshes both alongside the other external credentials and
+  falls through to the top-up prompts rather than exiting (#381), and the AWS
+  app task definition gained `GITHUB_ORG`/`ADMIN_LOGINS` in place of the
+  config bake.
+
+  **Migrating a running event.** There is no compatibility shim and no
+  migration step — `event.yaml` is simply not read by anything. On a box: add
+  `GITHUB_ORG` and `ADMIN_LOGINS` to `.env`, then bring the stack up with
+  `--profile secdev --profile app` (drop `secdev` if you have no
+  `SCORE_IMAGE`); delete `event.yaml`. On Fly: `deploy/fly/deploy.sh init
+  --refresh` copies both keys into `.env.fly`, then deploy as usual. On AWS:
+  set the new `github_org` and `admin_logins` Terraform variables and drop
+  `event_yaml_b64`. Everything else the file used to say — which modules run,
+  which targets run, the event's identity, the dates — is now set in `/admin`
+  on the running box, and the module content, teams, scores and hint spend in
+  Redis are untouched by any of this.
 
 - **README and docs screenshots caught up with the rename.** The wizard and
   `doctor` terminal shots still showed the CTF-in-a-box banner, the old
