@@ -25,7 +25,7 @@ import { moduleDefById, type GuideContext } from "@/lib/modules";
 import { getEnabledModuleIds } from "@/lib/enabled-modules";
 import { getModuleGuide, getResolvedModules } from "@/lib/resolved-modules";
 import { getSite } from "@/lib/site";
-import { eventConfig } from "@/lib/event-config";
+import { getGithubOrg } from "@/lib/bootstrap-env";
 
 // What the page is, in the live modules' own words. Read off the registry
 // (guide copy is not organizer-overridable — only title/blurb are), behind
@@ -65,7 +65,8 @@ export default async function HowToPlayPage() {
   const ctx: GuideContext = {
     appCount: enabledApps.length,
     appList: joinAppNames(enabledApps.map((a) => a.name)),
-    githubOrg: eventConfig.githubOrg,
+    // "" is a misconfiguration the setup wizard refuses and `doctor` flags; prose that interpolates the org is not guarded here (#386).
+    githubOrg: getGithubOrg(),
     exampleVariant: workedExampleVariant(enabledApps),
   };
 

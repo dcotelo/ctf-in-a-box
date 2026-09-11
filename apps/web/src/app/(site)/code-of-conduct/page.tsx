@@ -16,7 +16,7 @@ import Link from "next/link";
 import PageHeader from "@/components/page-header";
 import { isModuleLive } from "@/lib/enabled-modules";
 import { getSite } from "@/lib/site";
-import { eventConfig } from "@/lib/event-config";
+import { getGithubOrg } from "@/lib/bootstrap-env";
 
 export async function generateMetadata(): Promise<Metadata> {
   const event = await getSite();
@@ -41,6 +41,7 @@ const ExternalLink = ({ href, children }: { href: string; children: React.ReactN
 export default async function CodeOfConductPage() {
   const event = await getSite();
   const secureDev = await isModuleLive("secure-development");
+  const org = getGithubOrg();
   return (
     <div className="flex flex-col gap-10">
       <PageHeader
@@ -62,7 +63,7 @@ export default async function CodeOfConductPage() {
               governs this competition as an OWASP activity, and applies to the CTF Discord
               {secureDev ? (
                 <>
-                  , the {eventConfig.githubOrg} GitHub organization, and any pull requests or
+                  {org ? `, the ${org} GitHub organization,` : ", GitHub,"} and any pull requests or
                   reviews you take part in.
                 </>
               ) : (

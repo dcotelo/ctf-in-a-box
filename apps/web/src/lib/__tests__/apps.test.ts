@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { apps, joinAppNames, workedExampleVariant, type AppMeta } from "@/lib/apps";
+import { apps, forkUrl, joinAppNames, workedExampleVariant, type AppMeta } from "@/lib/apps";
 
 const juiceShop = apps.find((a) => a.id === "juice-shop") as AppMeta;
 const dvwa = apps.find((a) => a.id === "dvwa") as AppMeta;
@@ -22,6 +22,13 @@ describe("joinAppNames", () => {
     expect(joinAppNames(["DVWA", "Juice Shop", "WebGoat"])).toBe(
       "DVWA, Juice Shop, and WebGoat",
     );
+  });
+});
+
+describe("forkUrl", () => {
+  it("joins org and repo name, null for an empty org", () => {
+    expect(forkUrl("acceptance-org", "dvwa")).toBe("https://github.com/acceptance-org/DVWA");
+    expect(forkUrl("", "dvwa")).toBeNull();
   });
 });
 

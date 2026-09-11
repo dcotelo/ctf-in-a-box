@@ -24,7 +24,7 @@ describe("adminRemoveConfirm", () => {
     expect(title).toBe("Remove your own admin access?");
     expect(body).toContain("You will lose this panel immediately.");
     // The way back matters most in exactly this case.
-    expect(body).toMatch(/event\.yaml/);
+    expect(body).toMatch(/ADMIN_LOGINS/);
   });
 
   it("recognises yourself whatever the case — GitHub logins are unique case-insensitively", () => {

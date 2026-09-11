@@ -256,6 +256,15 @@ describe("exportEventBundle", () => {
     // (asserted in classic-store.test.ts/quiz-store.test.ts) rather than by
     // anything in this function. Keeping them here would be an assertion
     // that can never fail no matter what this file's allowlist logic does.
+    //
+    // `scoringStartsAt`/`scoringEndsAt` themselves are no longer canary
+    // material for the WHOLE bundle (config v2, PR 3A): `resolveSite` now
+    // legitimately derives `bundle.event.ctfStartsAt`/`dates` from them (see
+    // the "derives dates/ctfStartsAt" tests above), so a token seeded there
+    // is EXPECTED to surface in `bundle.event`. What must still never happen
+    // is either field appearing under its OWN name in `bundle.settings` —
+    // the actual excluded-field invariant this test exists to catch — so
+    // that check narrows to `bundle.settings` alone below.
     m.getAdminSettings.mockResolvedValue({
       hintCost: 50,
       teamMaxMembers: 4,
@@ -263,14 +272,17 @@ describe("exportEventBundle", () => {
       paused: true,
       updatedBy: "contestant-login",
       updatedAt: "team-slug-owner",
-      scoringStartsAt: "ctf:team:owl-squad",
-      scoringEndsAt: "ctf:user:42-marker",
+      scoringStartsAt: "2026-01-01T00:00:00Z",
+      scoringEndsAt: "2026-01-03T00:00:00Z",
     });
     const { bundle } = await exportEventBundle(new Date());
     const s = JSON.stringify(bundle);
-    for (const token of ["contestant-login", "team-slug", "ctf:team:", "ctf:user:"]) {
+    for (const token of ["contestant-login", "team-slug"]) {
       expect(s).not.toContain(token);
     }
+    const settingsJson = JSON.stringify(bundle.settings);
+    expect(settingsJson).not.toContain("scoringStartsAt");
+    expect(settingsJson).not.toContain("scoringEndsAt");
   });
 });
 
@@ -492,9 +504,34 @@ describe("importEventBundle", () => {
 describe("event identity in the archive (issue #386)", () => {
   it("exports name/theme/location from the runtime identity, never contact or Discord", async () => {
     const { bundle } = await exportEventBundle();
-    expect(bundle.event).toEqual({ name: "Runtime CTF", theme: "Ship", dates: "2026", location: "Online", ctfStartsAt: null });
+    // dates/ctfStartsAt come off the default fixture's scoringStartsAt
+    // ("2026-01-01T00:00:00Z", no scoringEndsAt) via resolveSite/
+    // formatDateRange — config v2, PR 3A, not event.yaml.
+    expect(bundle.event).toEqual({
+      name: "Runtime CTF",
+      theme: "Ship",
+      dates: "From Jan 1, 2026",
+      location: "Online",
+      ctfStartsAt: "2026-01-01T00:00:00Z",
+    });
     expect(JSON.stringify(bundle)).not.toContain("discord.gg");
     expect(JSON.stringify(bundle)).not.toContain("org@example.org");
+  });
+
+  // The schedule fields come off the SAME `getAdminSettings()` read as
+  // everything else in the bundle (no second Redis read) — pinned with a
+  // full start/end pair so the assertion exercises formatDateRange's
+  // same-year range branch too, not just the open-ended default fixture.
+  it("derives dates/ctfStartsAt from a full scoring window on the same settings read", async () => {
+    m.getAdminSettings.mockResolvedValue({
+      eventIdentity: { eventName: "Runtime CTF" },
+      scoringStartsAt: "2026-10-01T09:00:00Z",
+      scoringEndsAt: "2026-10-03T18:00:00Z",
+      paused: true,
+    });
+    const { bundle } = await exportEventBundle();
+    expect(bundle.event.dates).toBe("Oct 1 – Oct 3, 2026");
+    expect(bundle.event.ctfStartsAt).toBe("2026-10-01T09:00:00Z");
   });
 
   describe("import", () => {

@@ -27,7 +27,7 @@ import { getEnabledApps } from "@/lib/enabled-apps";
 import type { Copy, OrgContext } from "@/lib/modules";
 import { getModuleTerms, getResolvedModules } from "@/lib/resolved-modules";
 import { getSite } from "@/lib/site";
-import { eventConfig } from "@/lib/event-config";
+import { getGithubOrg } from "@/lib/bootstrap-env";
 
 export async function generateMetadata(): Promise<Metadata> {
   const event = await getSite();
@@ -79,7 +79,8 @@ export default async function TermsPage() {
   const ctx: OrgContext = {
     appCount: enabledApps.length,
     appList: joinAppNames(enabledApps.map((a) => a.name)),
-    githubOrg: eventConfig.githubOrg,
+    // "" is a misconfiguration the setup wizard refuses and `doctor` flags; prose that interpolates the org is not guarded here (#386).
+    githubOrg: getGithubOrg(),
   };
 
   const contributions = (await getResolvedModules()).flatMap((module) => {

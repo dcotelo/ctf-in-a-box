@@ -40,6 +40,7 @@ import { GET } from "@/app/api/admin/status/route";
 import { POST } from "@/app/api/admin/settings/route";
 import { POST as resetPOST } from "@/app/api/admin/reset/route";
 import { POST as seedPOST } from "@/app/api/admin/seed/route";
+import { adminErrorLabel } from "@/lib/admin-store";
 
 const req = (body?: unknown) =>
   new Request("http://x/api/admin/settings", { method: "POST", body: JSON.stringify(body ?? {}) });
@@ -219,6 +220,59 @@ describe("POST /api/admin/reset", () => {
     const res = await resetPOST(rreq({ confirm: "Test Event" }));
     expect(res.status).toBe(400);
     expect(resetEvent).not.toHaveBeenCalled();
+  });
+
+  // Carried from #389 round 3: this route used to log the raw caught `err`.
+  // Node's console.error prints an Error's own enumerable properties too, so
+  // a decorated error (a wrapped Redis/HTTP error carrying a token, a URL
+  // with credentials, etc.) would leak them straight into the server log.
+  // adminErrorLabel(err) reduces it to "<name>: <message>" — prove it for
+  // both call sites this route logs an error from.
+  //
+  // NOTE the assertion shape: `String(someError)` ALSO collapses to
+  // "Error: <message>" and drops the decorated fields on its own — so
+  // `.map(String).join(...)` proves nothing about what was actually passed
+  // to console.error (it would read identically whether the route logged
+  // the raw `err` or the label). The real proof is that every argument
+  // AFTER the fixed string prefix is itself a `string` — the raw `err` is
+  // an `Error` instance (`typeof === "object"`), so passing it directly
+  // fails this check regardless of how it later stringifies — and that it
+  // equals `adminErrorLabel(err)`'s own output exactly, not merely that it
+  // excludes a couple of chosen substrings.
+  it("redacts a decorated resetEvent failure before logging it — never the raw err", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const decorated = Object.assign(new Error("upstash down"), {
+      token: "SECRET-TOKEN",
+      url: "https://leaky.example/creds",
+    });
+    resetEvent.mockRejectedValue(decorated);
+    const res = await resetPOST(rreq({ confirm: "RESET" }));
+    expect(res.status).toBe(503);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [prefix, ...rest] = spy.mock.calls[0];
+    expect(prefix).toBe("[admin/reset] reset failed");
+    // Every logged argument past the prefix must be a STRING — not the
+    // `Error` object itself — and exactly the redacted label.
+    for (const arg of rest) expect(typeof arg).toBe("string");
+    expect(rest).toEqual([adminErrorLabel(decorated)]);
+    spy.mockRestore();
+  });
+
+  it("redacts a decorated settings-read failure before logging it — never the raw err", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const decorated = Object.assign(new Error("upstash down"), {
+      token: "SECRET-TOKEN",
+      url: "https://leaky.example/creds",
+    });
+    getAdminSettings.mockRejectedValue(decorated);
+    const res = await resetPOST(rreq({ confirm: "RESET" }));
+    expect(res.status).toBe(503);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [prefix, ...rest] = spy.mock.calls[0];
+    expect(prefix).toBe("[admin/reset] settings read failed");
+    for (const arg of rest) expect(typeof arg).toBe("string");
+    expect(rest).toEqual([adminErrorLabel(decorated)]);
+    spy.mockRestore();
   });
 });
 

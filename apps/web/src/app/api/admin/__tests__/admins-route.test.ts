@@ -7,11 +7,11 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { requireAdmin, isBakedAdmin, listBakedAdmins, listStoredAdmins, addStoredAdmin, removeStoredAdmin } = vi.hoisted(
+const { requireAdmin, isEnvAdmin, listEnvAdmins, listStoredAdmins, addStoredAdmin, removeStoredAdmin } = vi.hoisted(
   () => ({
     requireAdmin: vi.fn(),
-    isBakedAdmin: vi.fn(),
-    listBakedAdmins: vi.fn(),
+    isEnvAdmin: vi.fn(),
+    listEnvAdmins: vi.fn(),
     listStoredAdmins: vi.fn(),
     addStoredAdmin: vi.fn(),
     removeStoredAdmin: vi.fn(),
@@ -19,7 +19,7 @@ const { requireAdmin, isBakedAdmin, listBakedAdmins, listStoredAdmins, addStored
 );
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/admin-auth", () => ({ requireAdmin, isBakedAdmin, listBakedAdmins }));
+vi.mock("@/lib/admin-auth", () => ({ requireAdmin, isEnvAdmin, listEnvAdmins }));
 vi.mock("@/lib/admin-store", async (orig) => ({
   ...(await orig<typeof import("@/lib/admin-store")>()),
   listStoredAdmins,
@@ -28,7 +28,7 @@ vi.mock("@/lib/admin-store", async (orig) => ({
 }));
 
 import { DELETE, GET, POST } from "@/app/api/admin/admins/route";
-import { AdminValidationError } from "@/lib/admin-store";
+import { AdminValidationError, adminErrorLabel } from "@/lib/admin-store";
 
 const req = (body?: unknown) =>
   new Request("http://x/api/admin/admins", {
@@ -40,8 +40,8 @@ const req = (body?: unknown) =>
 beforeEach(() => {
   vi.clearAllMocks();
   requireAdmin.mockResolvedValue({ ok: true, login: "alice" });
-  isBakedAdmin.mockReturnValue(false);
-  listBakedAdmins.mockReturnValue(["alice"]);
+  isEnvAdmin.mockReturnValue(false);
+  listEnvAdmins.mockReturnValue(["alice"]);
   listStoredAdmins.mockResolvedValue(["carol"]);
   addStoredAdmin.mockResolvedValue(["carol", "dave"]);
   removeStoredAdmin.mockResolvedValue([]);
@@ -75,12 +75,47 @@ describe("GET", () => {
 
   it("reports a login that is both baked and stored exactly once, as baked", async () => {
     // Happens when someone is granted at runtime and later added to
-    // event.yaml. `baked` is what decides removability, so it must win.
+    // ADMIN_LOGINS. `baked` is what decides removability, so it must win.
     listStoredAdmins.mockResolvedValue(["alice", "carol"]);
     const body = await (await GET(req())).json();
     expect(body.admins.filter((a: { login: string }) => a.login === "alice")).toEqual([
       { login: "alice", baked: true },
     ]);
+  });
+
+  // This route used to log the raw caught `err`. Node's console.error prints
+  // an Error's own enumerable properties too, so a decorated error (a
+  // wrapped Redis/HTTP error carrying a token, a URL with credentials, etc.)
+  // would leak them straight into the server log. adminErrorLabel(err)
+  // reduces it to "<name>: <message>" — prove it, and prove the raw error
+  // object / its decorated props never reach console.error.
+  //
+  // NOTE the assertion shape: `String(someError)` ALSO collapses to
+  // "Error: <message>" and drops the decorated fields on its own, so
+  // `.map(String)` would prove nothing here — the real proof is that every
+  // argument after the fixed prefix is itself a `string` (the raw `err` is
+  // an `Error` instance, so passing it directly fails this check regardless
+  // of how it later stringifies) and that it equals adminErrorLabel(err)'s
+  // own output exactly.
+  it("redacts a decorated list failure before logging it — never the raw err", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const decorated = Object.assign(new Error("upstash down"), {
+      token: "SECRET-TOKEN",
+      url: "https://leaky.example/creds",
+    });
+    listStoredAdmins.mockRejectedValue(decorated);
+    const res = await GET(req());
+    expect(res.status).toBe(503);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [prefix, ...rest] = spy.mock.calls[0];
+    expect(prefix).toBe("[admin/admins] list failed");
+    for (const arg of rest) expect(typeof arg).toBe("string");
+    expect(rest).toEqual([adminErrorLabel(decorated)]);
+    for (const arg of rest) {
+      expect(arg).not.toContain("SECRET-TOKEN");
+      expect(arg).not.toContain("leaky.example");
+    }
+    spy.mockRestore();
   });
 });
 
@@ -107,6 +142,28 @@ describe("POST", () => {
     addStoredAdmin.mockRejectedValue(new Error("redis down"));
     expect((await POST(req({ login: "dave" }))).status).toBe(503);
   });
+
+  // Same redaction guard as GET, for the add path's own console.error site.
+  it("redacts a decorated add failure before logging it — never the raw err", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const decorated = Object.assign(new Error("upstash down"), {
+      token: "SECRET-TOKEN",
+      url: "https://leaky.example/creds",
+    });
+    addStoredAdmin.mockRejectedValue(decorated);
+    const res = await POST(req({ login: "dave" }));
+    expect(res.status).toBe(503);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [prefix, ...rest] = spy.mock.calls[0];
+    expect(prefix).toBe("[admin/admins] add failed");
+    for (const arg of rest) expect(typeof arg).toBe("string");
+    expect(rest).toEqual([adminErrorLabel(decorated)]);
+    for (const arg of rest) {
+      expect(arg).not.toContain("SECRET-TOKEN");
+      expect(arg).not.toContain("leaky.example");
+    }
+    spy.mockRestore();
+  });
 });
 
 describe("DELETE", () => {
@@ -119,12 +176,12 @@ describe("DELETE", () => {
   // THE LOCKOUT GUARD. A baked admin is the recovery path when a runtime grant
   // goes wrong; if this could remove one, a mistake — or a compromised admin
   // session — could lock every organizer out of /admin with no way back but a
-  // rebuild.
+  // restart.
   it("refuses to remove a BAKED admin, and does not touch the store", async () => {
-    isBakedAdmin.mockReturnValue(true);
+    isEnvAdmin.mockReturnValue(true);
     const res = await DELETE(req({ login: "alice" }));
     expect(res.status).toBe(409);
-    expect((await res.json()).error).toContain("event.yaml");
+    expect((await res.json()).error).toContain("ADMIN_LOGINS");
     expect(removeStoredAdmin).not.toHaveBeenCalled();
   });
 
@@ -138,5 +195,28 @@ describe("DELETE", () => {
   it("400s a non-string login without touching the store", async () => {
     expect((await DELETE(req({ login: null }))).status).toBe(400);
     expect(removeStoredAdmin).not.toHaveBeenCalled();
+  });
+
+  // Same redaction guard as GET/POST, for the remove path's own
+  // console.error site.
+  it("redacts a decorated remove failure before logging it — never the raw err", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const decorated = Object.assign(new Error("upstash down"), {
+      token: "SECRET-TOKEN",
+      url: "https://leaky.example/creds",
+    });
+    removeStoredAdmin.mockRejectedValue(decorated);
+    const res = await DELETE(req({ login: "carol" }));
+    expect(res.status).toBe(503);
+    expect(spy).toHaveBeenCalledTimes(1);
+    const [prefix, ...rest] = spy.mock.calls[0];
+    expect(prefix).toBe("[admin/admins] remove failed");
+    for (const arg of rest) expect(typeof arg).toBe("string");
+    expect(rest).toEqual([adminErrorLabel(decorated)]);
+    for (const arg of rest) {
+      expect(arg).not.toContain("SECRET-TOKEN");
+      expect(arg).not.toContain("leaky.example");
+    }
+    spy.mockRestore();
   });
 });

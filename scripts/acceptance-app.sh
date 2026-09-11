@@ -64,7 +64,8 @@ docker build -f apps/web/Dockerfile -t ctf-web:acceptance \
   --build-arg APP_BUILT_AT=2026-01-01T00:00:00Z .
 docker run -d --name web-acceptance -p 3100:3000 \
   -e BETTER_AUTH_SECRET=acceptance-app-secret-32-characters-min -e BETTER_AUTH_URL=http://localhost:3100 \
-  -e SCORE_IMAGE=ghcr.io/example/score:acceptance ctf-web:acceptance
+  -e SCORE_IMAGE=ghcr.io/example/score:acceptance \
+  -e GITHUB_ORG=acceptance-org -e ADMIN_LOGINS=acceptance-admin ctf-web:acceptance
 
 HOME_HTML=$(wait_for_html http://localhost:3100/)
 CHALLENGES_HTML=$(wait_for_html http://localhost:3100/challenges)
@@ -94,7 +95,7 @@ expect_in "$CHALLENGES_HTML" "DVWA" "target DVWA not rendered"
 expect_in "$CHALLENGES_HTML" "VAmPI" "target VAmPI not rendered"
 expect_in "$CHALLENGES_HTML" "WebGoat" "target WebGoat not rendered (targets: in event.yaml should be inert)"
 
-echo "--- fork links use event.yaml's github.org, not a hardcoded OWASP-CTF"
+echo "--- fork links use GITHUB_ORG from the environment, not a hardcoded OWASP-CTF"
 expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/DVWA" "fork link does not use github.org"
 expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/VAmPI" "fork link does not use github.org"
 expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/WebGoat" "fork link does not use github.org"
@@ -179,7 +180,11 @@ if echo "$DEFAULT_HTML" | grep -qi "DEF CON"; then echo "FAIL: default build car
 # script does.
 expect_in "$DEFAULT_HTML" "<title>OWASP CTF</title>" "default build does not carry the neutral name in the page title"
 
-echo "--- default build's fork links fall back to OWASP-CTF"
-expect_in "$DEFAULT_CHALLENGES_HTML" "github.com/OWASP-CTF/" "default build does not fall back to OWASP-CTF fork links"
+echo "--- with no GITHUB_ORG the default build renders bare repo names and no fork link"
+expect_in "$DEFAULT_CHALLENGES_HTML" "DVWA" "default build did not render the DVWA repo name"
+if echo "$DEFAULT_CHALLENGES_HTML" | grep -qE 'github\.com/[^"]+/DVWA'; then
+  echo "FAIL: default build still links a DVWA fork although GITHUB_ORG is unset"
+  exit 1
+fi
 
 echo "ACCEPTANCE PASS"

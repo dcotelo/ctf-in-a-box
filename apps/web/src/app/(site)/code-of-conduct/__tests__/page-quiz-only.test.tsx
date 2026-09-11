@@ -16,6 +16,11 @@ import {
   SECURE_DEV_TERMS,
 } from "../../__tests__/secure-dev-terms";
 
+// The page now reaches `getGithubOrg` (bootstrap-env.ts's `import
+// "server-only"`) even on this quiz-only branch, which never renders the org
+// — every other page fixture in this repo mocks "server-only" for the same
+// reason; this file predates the page needing it.
+vi.mock("server-only", () => ({}));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
 vi.mock("@/lib/event-config", () => ({
   eventConfig: {

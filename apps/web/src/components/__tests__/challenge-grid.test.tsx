@@ -18,13 +18,14 @@ const dvwa: AppMeta = {
   id: "dvwa",
   name: "DVWA",
   blurb: "PHP classics at three security levels.",
-  repo: "https://github.com/OWASP-CTF/DVWA",
   challengeCount: 2,
   maxPoints: 4,
   stars: [1, 3],
   accent: "#e53e3e",
   icon: "M0 0",
 };
+
+const forkUrls = { dvwa: "https://github.com/OWASP-CTF/DVWA" };
 
 const rows: CatalogChallenge[] = [
   { app: "dvwa", id: "sqli-low", description: "SQL Injection (Low)", points: 1, owasp: { code: "A05", label: "Injection", url: null } },
@@ -113,9 +114,35 @@ describe("ChallengeGrid (queue)", () => {
   });
 
   it("falls back to summary cards without a live catalogue", () => {
-    const html = renderToStaticMarkup(<ChallengeGrid apps={[dvwa]} catalog={null} hints={{}} />);
+    const html = renderToStaticMarkup(
+      <ChallengeGrid apps={[dvwa]} catalog={null} hints={{}} forkUrls={forkUrls} />,
+    );
     expect(html).toContain("DVWA");
     expect(html).toContain("1–3 pts per challenge");
     expect(html).not.toContain("All targets");
+  });
+
+  // Fork links come from the runtime GITHUB_ORG (config v2: PR 3A) — the page
+  // hands down `forkUrls`, and the grid renders a link when it has one for a
+  // target and plain repo-name text (never a broken `github.com//DVWA` link)
+  // when it doesn't.
+  it("renders a fork link when the org is configured", () => {
+    const html = renderToStaticMarkup(
+      <ChallengeGrid apps={[dvwa]} catalog={null} hints={{}} forkUrls={forkUrls} />,
+    );
+    expect(html).toContain('href="https://github.com/OWASP-CTF/DVWA"');
+    expect(html).toContain("OWASP-CTF/DVWA");
+  });
+
+  it("falls back to plain repo-name text when no org is configured", () => {
+    const html = renderToStaticMarkup(
+      <ChallengeGrid apps={[dvwa]} catalog={null} hints={{}} forkUrls={{ dvwa: null }} />,
+    );
+    expect(html).not.toContain("<a ");
+    expect(html).toContain("DVWA");
+    // The unlinked repo name must not carry link-affordance classes either
+    // (#386 review) — a `ds-link` underline on unclickable text reads as a
+    // broken link, not as plain text.
+    expect(html).not.toContain("ds-link");
   });
 });

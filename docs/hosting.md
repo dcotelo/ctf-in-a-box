@@ -791,6 +791,8 @@ the same list, annotated), and `doctor` flags a missing `REDIS_PASSWORD`.
 | `LEADERBOARD_API_URL` | `lib/challenges.ts`, `lib/leaderboard/lambda.ts` | *fixed*: `http://scorer:4000` | Scorer base URL for the challenge catalogue and the board. |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | `lib/upstash.ts`; also `scorer/src/store.js`, `sync/src/redis.js` | *fixed*: `http://srh:80`, `SRH_TOKEN` | Redis-over-REST endpoint. Hints, teams, admin settings and module content live behind it. |
 | `TEAM_WRITES_ENABLED` | `lib/team-store.ts` | *fixed*: `"true"` | Enables team create/join writes; off in mock mode. |
+| `GITHUB_ORG` | `lib/bootstrap-env.ts` | empty | The GitHub org contestants fork the target repos under; drives fork links and policy-page prose. Empty renders plain repo-name text, never a broken link. |
+| `ADMIN_LOGINS` | `lib/bootstrap-env.ts`, `lib/admin-auth.ts` | empty | Comma-separated GitHub logins (case-insensitive) allowed into `/admin`. Empty means nobody; changing it needs an env edit and a restart. |
 
 **Sync** (`sync/src/config.js`, poll mode only):
 

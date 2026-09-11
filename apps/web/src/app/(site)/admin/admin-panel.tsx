@@ -7,12 +7,12 @@
 import { headers } from "next/headers";
 import PageHeader from "@/components/page-header";
 import { phaseFromSettings } from "@/components/phase";
-import { requireAdmin } from "@/lib/admin-auth";
+import { listEnvAdmins, requireAdmin } from "@/lib/admin-auth";
 import { getAdminSettings, getSyncStatus } from "@/lib/admin-store";
 import { joinAppNames } from "@/lib/apps";
 import { getEnabledApps } from "@/lib/enabled-apps";
 import { defaultModuleIds } from "@/lib/enabled-modules";
-import { eventConfig } from "@/lib/event-config";
+import { getGithubOrg } from "@/lib/bootstrap-env";
 import type { ModuleSetupContent, OrgContext } from "@/lib/modules";
 import { secureDevAvailable } from "@/lib/module-defaults";
 import { getModuleSetup, getResolvedModules } from "@/lib/resolved-modules";
@@ -24,6 +24,14 @@ export default async function AdminPanel({ tab }: { tab?: string }) {
   const gate = await requireAdmin(await headers());
 
   if (!gate.ok) {
+    // A boolean only — never the list itself. When ADMIN_LOGINS is empty,
+    // requireAdmin refuses EVERY login (admin-auth.ts's fail-closed check,
+    // runtime grants included), so this wall is the one surface an organizer
+    // stuck in that state actually sees; the Admins tab is unreachable to
+    // say it instead. `listEnvAdmins()` reads the same module-load snapshot
+    // `requireAdmin` above already checked, so the gate and the wall can
+    // never disagree (#386 review).
+    const envEmpty = listEnvAdmins().length === 0;
     return (
       <div className="flex flex-col gap-8">
         <PageHeader eyebrow="Admin" title="Forbidden" description="Organizer access only." />
@@ -31,6 +39,12 @@ export default async function AdminPanel({ tab }: { tab?: string }) {
           <p className="text-sm text-zinc-400">
             You need to be an organizer to view this page.
           </p>
+          {envEmpty && (
+            <p role="alert" className="mt-3 text-sm text-[#e53e3e]">
+              ADMIN_LOGINS is empty or holds no valid GitHub login — nobody can use /admin until it
+              is set and the app restarts.
+            </p>
+          )}
         </div>
       </div>
     );
@@ -65,7 +79,8 @@ export default async function AdminPanel({ tab }: { tab?: string }) {
   const ctx: OrgContext = {
     appCount: enabledApps.length,
     appList: joinAppNames(enabledApps.map((a) => a.name)),
-    githubOrg: eventConfig.githubOrg,
+    // "" is a misconfiguration the setup wizard refuses and `doctor` flags; prose that interpolates the org is not guarded here (#386).
+    githubOrg: getGithubOrg(),
   };
   const setups: Partial<Record<string, ModuleSetupContent>> = {};
   for (const mod of modules) {

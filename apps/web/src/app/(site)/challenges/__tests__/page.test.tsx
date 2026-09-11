@@ -10,7 +10,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-const { getResolvedModules, getChallengeCatalog, getHintAvailability, isModuleEnabled, getEnabledApps, getEnabledTotals } = vi.hoisted(() => ({
+const { getResolvedModules, getChallengeCatalog, getHintAvailability, isModuleEnabled, getEnabledApps, getEnabledTotals, getGithubOrg } = vi.hoisted(() => ({
   getResolvedModules: vi.fn(),
   getChallengeCatalog: vi.fn(),
   getHintAvailability: vi.fn(),
@@ -21,9 +21,15 @@ const { getResolvedModules, getChallengeCatalog, getHintAvailability, isModuleEn
   // runtime-narrowed-target-list case below overrides it.
   getEnabledApps: vi.fn(),
   getEnabledTotals: vi.fn(),
+  // The org the page hands to `forkUrl` (config v2: PR 3A) — defaulted to
+  // "" below so every existing test here keeps rendering plain repo-name
+  // text, same as before this page read GITHUB_ORG at all; only the
+  // fork-links describe block below overrides it.
+  getGithubOrg: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/bootstrap-env", () => ({ getGithubOrg }));
 // The page reads the session for the hint banner's sign-in clause (issue
 // #200, 3.1); these tests render outside a request scope, so both the
 // header store and the session read are stubbed — signed-out, matching the
@@ -76,6 +82,10 @@ beforeEach(() => {
     challenges: apps.reduce((sum, a) => sum + a.challengeCount, 0),
     maxPoints: apps.reduce((sum, a) => sum + a.maxPoints, 0),
   });
+  // Default: no configured org, same as every test here before the page
+  // read GITHUB_ORG at all — only the fork-links describe block below sets
+  // this explicitly.
+  getGithubOrg.mockReturnValue("");
 });
 
 describe("challenges page gate", () => {
@@ -140,5 +150,33 @@ describe("/challenges with a runtime-narrowed target list", () => {
     const html = renderToStaticMarkup(await ChallengesPage());
     expect(html).toContain(`${dvwa.challengeCount} challenges across`);
     expect(html).not.toContain("999 challenges");
+  });
+});
+
+// Config v2 (PR 3A): fork links come from GITHUB_ORG (lib/bootstrap-env.ts),
+// not the (now-dead) event.yaml bake. This is the page-level proof that its
+// own wiring — getGithubOrg() -> forkUrl() -> the `forkUrls` prop ->
+// ChallengeGrid — actually reaches the rendered markup, not just that it
+// type-checks; ChallengeGrid's own unit tests cover the render logic once a
+// `forkUrls` value is handed to it.
+describe("/challenges wires GITHUB_ORG into the fork links", () => {
+  beforeEach(() => {
+    getResolvedModules.mockResolvedValue(resolved());
+    const dvwa = apps.find((a) => a.id === "dvwa")!;
+    getEnabledApps.mockResolvedValue([dvwa]);
+    getEnabledTotals.mockResolvedValue({ challenges: dvwa.challengeCount, maxPoints: dvwa.maxPoints });
+  });
+
+  it("renders the fork link under the configured org", async () => {
+    getGithubOrg.mockReturnValue("acceptance-org");
+    const html = renderToStaticMarkup(await ChallengesPage());
+    expect(html).toContain("https://github.com/acceptance-org/DVWA");
+  });
+
+  it("renders plain repo-name text, with no github.com link, when no org is configured", async () => {
+    getGithubOrg.mockReturnValue("");
+    const html = renderToStaticMarkup(await ChallengesPage());
+    expect(html).toContain("DVWA");
+    expect(html).not.toContain("https://github.com/");
   });
 });

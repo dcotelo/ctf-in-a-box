@@ -116,7 +116,7 @@ export default async function LeaderboardPage({
         title="Leaderboard"
         description={session ? BASE_DESCRIPTION : BASE_DESCRIPTION + SIGNED_OUT_CLAUSE}
       />
-      {sourceMode === "mock" && <MockDataNotice />}
+      {sourceMode === "mock" && <MockDataNotice startsAt={event.ctfStartsAt} />}
       {/* data.series/teamSeries pass straight through this spread — the
           chart itself lives inside <Leaderboard> now, so it can switch
           between them as the individual/teams view toggle flips. */}

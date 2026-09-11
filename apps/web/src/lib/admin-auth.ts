@@ -1,46 +1,62 @@
 import "server-only";
 import { auth } from "@/lib/auth";
-import { eventConfig } from "@/lib/event-config";
+import { envAdmins } from "@/lib/bootstrap-env";
 import { listStoredAdmins } from "@/lib/admin-admins";
 
-/** Admins baked into the image from `event.yaml`. These are the BOOTSTRAP
- *  identities: they always authorize, they cannot be revoked through the
- *  panel, and they are the recovery path if a runtime grant goes wrong or
- *  Redis is empty. Changing them needs a rebuild — which is the whole reason
- *  runtime grants exist (issue #147). */
-const bakedAdmins = new Set(eventConfig.admins.map((a) => a.toLowerCase()));
+/** Admins from `ADMIN_LOGINS` (config v2 — no more baked `event.yaml`
+ *  `admins:` array). These are the BOOTSTRAP identities: they always
+ *  authorize, they cannot be revoked through the panel, and they are the
+ *  recovery path if a runtime grant goes wrong or Redis is empty. Changing
+ *  them needs an env edit and a restart — which is the whole reason runtime
+ *  grants exist (issue #147; ADR 44 records the recovery path this set is
+ *  for). Computed once at module load: `ADMIN_LOGINS` is process
+ *  configuration, not something that changes without a restart, same as
+ *  the baked set it replaces. */
+const envAdminSet = envAdmins();
 
-/** True for a login baked into the image. Synchronous and Redis-free, so it
- *  is safe anywhere — including the paths that only need "is this the
+/** True for a login in `ADMIN_LOGINS`. Synchronous and Redis-free, so it is
+ *  safe anywhere — including the paths that only need "is this the
  *  organizer" for display. */
-export function isBakedAdmin(login: string | undefined): boolean {
-  return typeof login === "string" && bakedAdmins.has(login.toLowerCase());
+export function isEnvAdmin(login: string | undefined): boolean {
+  return typeof login === "string" && envAdminSet.has(login.toLowerCase());
 }
 
-/** Baked admins, lowercased. The panel needs them to mark which rows it must
- *  refuse to remove. */
-export function listBakedAdmins(): string[] {
-  return [...bakedAdmins].sort();
+/** Env admins, lowercased and sorted. The panel needs them to mark which
+ *  rows it must refuse to remove, and to know when the allowlist itself is
+ *  empty (see `isAdminLogin`'s fail-closed note). */
+export function listEnvAdmins(): string[] {
+  return [...envAdminSet].sort();
 }
 
 /**
- * True when `login` is an admin — baked into the image OR granted at runtime.
+ * True when `login` is an admin — in `ADMIN_LOGINS` OR granted at runtime.
  *
- * FAILS CLOSED. A Redis error propagates rather than resolving false-y by
- * accident, and `requireAdmin` turns it into a 403. This is deliberately the
- * OPPOSITE of `effectivePaused`'s read in admin-store, which fails OPEN so a
- * Redis blip cannot drop live submissions: that one is a safety switch whose
- * failure should not stop an event, and this one is an access check whose
- * failure must not grant access. Both behaviours are correct; they differ
- * because the cost of being wrong differs.
+ * FAIL CLOSED, two ways. First, the ordinary one: a Redis error propagates
+ * rather than resolving false-y by accident, and `requireAdmin` turns it
+ * into a 403. This is deliberately the OPPOSITE of `effectivePaused`'s read
+ * in admin-store, which fails OPEN so a Redis blip cannot drop live
+ * submissions: that one is a safety switch whose failure should not stop an
+ * event, and this one is an access check whose failure must not grant
+ * access. Both behaviours are correct; they differ because the cost of
+ * being wrong differs.
  *
- * A baked admin short-circuits before Redis is touched, so the organizer can
+ * Second, the config-v2-specific one: when `ADMIN_LOGINS` is EMPTY, nobody
+ * is an admin, full stop — a runtime grant is refused too. The alternative
+ * (empty allowlist = "no restriction configured, let runtime grants
+ * decide") would make the panel reachable to whoever grants themselves
+ * first, on a value that reads at a glance like "nobody"; refusing
+ * everyone is the only answer this repo trusts to type correctly. This is
+ * why the empty-set check happens BEFORE the Redis read, not after: it also
+ * means the fail-closed path never touches Redis at all.
+ *
+ * An env admin short-circuits before Redis is touched, so the organizer can
  * still get in when the datastore is down — which is exactly when they most
  * need the panel.
  */
 export async function isAdminLogin(login: string | undefined): Promise<boolean> {
   if (typeof login !== "string" || login === "") return false;
-  if (isBakedAdmin(login)) return true;
+  if (isEnvAdmin(login)) return true;
+  if (envAdminSet.size === 0) return false;
   const stored = await listStoredAdmins();
   return stored.includes(login.toLowerCase());
 }
@@ -52,13 +68,17 @@ export async function requireAdmin(
   if (!session) return { ok: false, status: 401 };
   const login = (session.user as { login?: string }).login;
   if (typeof login !== "string" || login === "") return { ok: false, status: 403 };
-  if (isBakedAdmin(login)) return { ok: true, login };
+  if (isEnvAdmin(login)) return { ok: true, login };
+  // Fail closed: an empty ADMIN_LOGINS refuses everyone, runtime grants
+  // included — see isAdminLogin's comment. Checked before the Redis read so
+  // the fail-closed path needs no store at all.
+  if (envAdminSet.size === 0) return { ok: false, status: 403 };
   let stored: string[];
   try {
     stored = await listStoredAdmins();
   } catch {
     // Fail closed: an unreachable datastore denies, it does not grant. The
-    // baked check above already ran, so an organizer listed in event.yaml is
+    // env-admin check above already ran, so a login in ADMIN_LOGINS is
     // unaffected by this branch.
     return { ok: false, status: 403 };
   }
