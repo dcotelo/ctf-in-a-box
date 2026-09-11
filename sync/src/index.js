@@ -210,10 +210,16 @@ export async function tick(cfg, state, deps = {}) {
 }
 
 // Exported for the tests: every collaborator is injectable so main() can be
-// exercised WITHOUT a real config file, Redis, GitHub, or an unstoppable poll
-// loop. It used to be unreachable from a test — the null-config guard below
-// could be deleted with the whole suite still green (49/49), which is no
-// guard at all. test/main.test.js now watches it fail.
+// exercised WITHOUT a real env, Redis, GitHub, or an unstoppable poll loop.
+//
+// config-v2 (#386): sync no longer decides "am I enabled" — that used to be
+// a module key in the old bind-mounted YAML config, and loadConfig could
+// return null for "nothing to poll" (a quiz-only event). Now whether sync
+// runs at all is the compose profile's call: if this container is up, it
+// polls. The only thing left to guard against is a genuinely broken config
+// (GITHUB_ORG unset, a missing secret, ...), which loadConfig reports by
+// throwing — caught here so it is a clean, named refusal at startup rather
+// than an uncaught rejection.
 export async function main(deps = {}) {
   const {
     load = loadConfig,
@@ -224,16 +230,15 @@ export async function main(deps = {}) {
     makeRedisImpl = makeRedis,
     runTick = tick,
     sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
+    exit = process.exit,
   } = deps;
 
-  const cfg = load();
-  // No polled module in this event.yaml (a quiz-only event): exit cleanly
-  // BEFORE touching state, Redis or the poll loop. Returning here — paired
-  // with compose's `restart: on-failure` — is the whole reason the poller
-  // stops instead of crash-looping with nothing to poll.
-  if (!cfg) {
-    log("ctf-sync: no polled module enabled, nothing to do");
-    return;
+  let cfg;
+  try {
+    cfg = load();
+  } catch (err) {
+    logErr(`ctf-sync: ${err.message}`);
+    return exit(1);
   }
 
   // `logErr` so a state repair lands in the same stream as the poller's other

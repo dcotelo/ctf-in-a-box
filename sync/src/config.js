@@ -1,19 +1,4 @@
-import { readFileSync } from "node:fs";
-import { parse as parseYaml } from "yaml";
 import { makeAppAuth } from "./appAuth.js";
-
-// The module keys this build TOLERATES in event.yaml, defined once. A new
-// vertical is a code change (add its key here + register its content), never
-// config alone — the deliberate-registration model in docs/modules.md §1.2.
-// This list must stay in step with the app's own registry
-// (apps/web/scripts/generate-event-config.mjs's MODULE_VALIDATORS): both read
-// the SAME event.yaml, so a key the app accepts but sync rejects crash-loops
-// the poller and silently freezes the leaderboard.
-export const KNOWN_MODULES = ["secure-development", "quiz", "classic", "ai"];
-// The one module sync actually scores. Deliberately a literal, not
-// KNOWN_MODULES[0] — tolerating a key is not the same as serving it, and the
-// two must not drift if the list is reordered or extended.
-const MODULE = "secure-development";
 
 export const TARGETS = ["juice-shop", "dvwa", "webgoat", "securityshepherd", "vulnerableapp", "vampi"];
 
@@ -62,68 +47,20 @@ function positiveInt(raw, fallback, name, max) {
 // jitter is floor((2^31 - 1) / 1.2).
 const POLL_INTERVAL_MAX_MS = Math.floor((2 ** 31 - 1) / 1.2);
 
-// Where the event.yaml TEXT comes from, in precedence order.
+// config-v2 (#386): sync is configured from `.env` alone — the old
+// bind-mounted YAML config file is gone. Whether sync runs at all is
+// decided by the compose profile (`poll`),
+// not by module presence in a config file: sync no longer decides "am I
+// enabled", so a missing/blank GITHUB_ORG is a genuine misconfiguration, not
+// "nothing to poll" — it throws, naming the key, rather than returning null.
 //
-// EVENT_CONFIG_B64 exists for deployments with no writable host to bind-mount
-// from — the single-machine Fly deployment (docs/fly.md) is the reason it was
-// added. There, every container shares one machine and there is no host path
-// for `./event.yaml:/config/event.yaml:ro` to point at.
-//
-// It is the SAME variable, in the SAME encoding, that the app already takes as
-// a build-arg to bake its config (see apps/web/Dockerfile and ADR 26) — so an
-// organizer sets one value and both readers of event.yaml agree by
-// construction. The difference is only WHEN each consumes it: the app at build
-// time, sync at start-up.
-//
-// The file path stays the default so nothing about a compose deployment
-// changes, and an empty EVENT_CONFIG_B64 is treated as absent rather than as
-// an empty config: compose renders an unset `${EVENT_CONFIG_B64:-}` as the
-// empty string, and taking that literally would turn "variable not set" into
-// "event.yaml is blank" — a parse error blaming the config file for a missing
-// environment variable.
-function readConfigText(path, env) {
-  const b64 = env.EVENT_CONFIG_B64;
-  if (b64) {
-    const text = Buffer.from(b64, "base64").toString("utf8");
-    // base64-decoding junk does not throw — it yields bytes. Catching it here
-    // names the variable that is wrong; letting it through produces a YAML
-    // error about the *file*, which is the one thing it did not come from.
-    if (!text.trim()) throw new Error("EVENT_CONFIG_B64 is set but decodes to nothing (expected base64 of event.yaml)");
-    return text;
-  }
-  return readFileSync(path, "utf8");
-}
-
-export function loadConfig(path = process.env.EVENT_CONFIG ?? "/config/event.yaml", env = process.env) {
-  const doc = parseYaml(readConfigText(path, env));
-  const org = doc?.github?.org;
-  if (!org) throw new Error("event.yaml: github.org is required");
-  const modules = doc?.modules;
-  // Array.isArray is not redundant: `modules: []` (or a `- quiz` sequence) is
-  // typeof "object" and truthy, so without it a sequence where a mapping
-  // belongs was accepted here as "nothing enabled" while ctf-setup.sh rejected
-  // the same file outright. setup/test/module_readers.bats runs the shared
-  // corpus in setup/test/corpus/ against the BASH reader only; this reader's
-  // own pin is sync/test/config.test.js's "rejects modules: as a sequence,
-  // not as nothing enabled".
-  if (!modules || typeof modules !== "object" || Array.isArray(modules)) {
-    throw new Error(`event.yaml: modules.${MODULE} is required`);
-  }
-  const unknown = Object.keys(modules).filter((k) => !KNOWN_MODULES.includes(k));
-  if (unknown.length) throw new Error(`event.yaml: unknown module: ${unknown.join(", ")} (known modules: ${KNOWN_MODULES.join(", ")})`);
-  const mod = modules[MODULE];
-  // A module this build cannot serve is not an error — it just means there is
-  // nothing to poll. Returning null (rather than throwing) is what lets a
-  // quiz-only event run: throwing here crash-looped the poller and froze the
-  // leaderboard with no signal beyond a restart count.
-  if (!mod) return null;
-  // event.yaml no longer says WHICH targets to poll — that now lives in
-  // Redis (`ctf:admin:settings.secureDevTargets`, config-v2) and is read
-  // fresh every tick (see redis.js's getSecureDevTargets / index.js's tick).
-  // A `targets:` key under secure-development is tolerated, not validated or
-  // read: an organizer's stale event.yaml (or one copied from an older
-  // event) must not crash-loop the poller over a key this build simply
-  // stopped consulting.
+// `env = process.env` is a default PARAMETER, not a read from inside the
+// function body: everything below reads only from the `env` argument, so
+// loadConfig stays pure over what it's given and testable with a plain
+// object.
+export function loadConfig(env = process.env) {
+  const org = (env.GITHUB_ORG ?? "").trim();
+  if (!org) throw new Error("GITHUB_ORG is not set");
   if (!env.SCORER_TOKEN) throw new Error("SCORER_TOKEN env var is required");
   const apiUrl = env.GITHUB_API_URL ?? "https://api.github.com";
   const { authMode, getToken } = resolveAuth(env, apiUrl);
