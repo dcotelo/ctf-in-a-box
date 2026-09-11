@@ -64,7 +64,8 @@ docker build -f apps/web/Dockerfile -t ctf-web:acceptance \
   --build-arg APP_BUILT_AT=2026-01-01T00:00:00Z .
 docker run -d --name web-acceptance -p 3100:3000 \
   -e BETTER_AUTH_SECRET=acceptance-app-secret-32-characters-min -e BETTER_AUTH_URL=http://localhost:3100 \
-  -e SCORE_IMAGE=ghcr.io/example/score:acceptance ctf-web:acceptance
+  -e SCORE_IMAGE=ghcr.io/example/score:acceptance \
+  -e GITHUB_ORG=acceptance-org -e ADMIN_LOGINS=acceptance-admin ctf-web:acceptance
 
 HOME_HTML=$(wait_for_html http://localhost:3100/)
 CHALLENGES_HTML=$(wait_for_html http://localhost:3100/challenges)
@@ -94,7 +95,7 @@ expect_in "$CHALLENGES_HTML" "DVWA" "target DVWA not rendered"
 expect_in "$CHALLENGES_HTML" "VAmPI" "target VAmPI not rendered"
 expect_in "$CHALLENGES_HTML" "WebGoat" "target WebGoat not rendered (targets: in event.yaml should be inert)"
 
-echo "--- fork links use event.yaml's github.org, not a hardcoded OWASP-CTF"
+echo "--- fork links use GITHUB_ORG from the environment, not a hardcoded OWASP-CTF"
 expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/DVWA" "fork link does not use github.org"
 expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/VAmPI" "fork link does not use github.org"
 expect_in "$CHALLENGES_HTML" "github.com/acceptance-org/WebGoat" "fork link does not use github.org"
