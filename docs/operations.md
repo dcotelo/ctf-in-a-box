@@ -1665,8 +1665,10 @@ org, an OAuth app, or a real contestant PR? One command:
 
 This generates a throwaway `.env.dev-stack` if you have no `.env` (never
 touches or overwrites a real one), builds the scorer image locally from
-`scorer/` and the app image from `apps/web/` (falling back to
-`event.yaml.example` if you have no `event.yaml` yet), brings up `redis`,
+`scorer/` and the app image from `apps/web/` (the app takes no build-time
+config; the throwaway `.env.dev-stack` gets starter `ADMIN_LOGINS` and
+`GITHUB_ORG` values from an `event.yaml` or the shipped `event.yaml.example`
+if one is lying around, and leaves both blank otherwise), brings up `redis`,
 `srh`, `scorer`, `app` and `caddy`, and seeds a few demo players onto the
 leaderboard through the scorer's real bearer-authed `POST /score` — the same
 endpoint a scored PR hits, so it exercises the real validation and Redis-write
