@@ -25,20 +25,37 @@ vi.mock("@/lib/event-config", () => ({ eventConfig: {
 // any baked/build-time set.
 vi.mock("@/lib/modules", () => ({
   isModuleId: (v: unknown) => typeof v === "string" && ["classic", "quiz", "ai", "secure-development"].includes(v),
+  // resolveSite() (real now — see the `@/lib/site` mock below) re-exports this
+  // verbatim onto `Site`; the mock needs to supply it or resolveSite throws.
+  SECURE_AGENT_PLAYBOOK_URL: "https://github.com/OWASP/secure-agent-playbook",
 }));
-vi.mock("@/lib/site", () => ({
-  getSite: vi.fn(async () => ({
-    name: "Runtime CTF",
-    theme: "Ship",
-    dates: "2026",
-    location: "Online",
-    ctfStartsAt: null,
-    discordUrl: "https://discord.gg/x",
-    contactEmail: "org@example.org",
-  })),
-}));
+// event-store.ts now builds the exported identity via `resolveSite(settings
+// .eventIdentity)` — the SAME settings read `getAdminSettings()` already did
+// — rather than a second `getSite()` HGETALL (finding I4: a Redis blip
+// between two independent reads could otherwise write an archive whose
+// event.name is the fail-open default while `bundle.settings` came from the
+// good read). Keep `resolveSite` REAL (pure — no I/O) via `importActual`, and
+// make `getSite` a mock that throws if event-store ever calls it again, so a
+// regression back to the two-read shape fails this suite immediately instead
+// of silently reintroducing the race.
+vi.mock("@/lib/site", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/site")>("@/lib/site");
+  return {
+    ...actual,
+    getSite: vi.fn(async () => {
+      throw new Error("event-store must not call getSite() — build identity via resolveSite(settings.eventIdentity) instead");
+    }),
+  };
+});
+// `resolveSite`'s real implementation imports `@/lib/enabled-modules` only
+// transitively (through `@/lib/site`'s own `getSite`, which this file never
+// calls) — but `@/lib/site`'s top-level import of it still runs on
+// `importActual` above, so stub it the same way site.test.ts does rather than
+// letting it reach the real Redis-backed chain.
+vi.mock("@/lib/enabled-modules", () => ({ getAdminSettingsSnapshot: vi.fn(async () => null) }));
 
 import { exportEventBundle, importEventBundle, EventLiveError } from "@/lib/event-store";
+import { getSite } from "@/lib/site";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -48,6 +65,13 @@ beforeEach(() => {
   m.getAdminSettings.mockResolvedValue({
     hintCost: 50, teamMaxMembers: 4, enabledModuleIds: ["classic", "quiz"],
     scoringStartsAt: "2026-01-01T00:00:00Z", paused: true, updatedBy: "alice", updatedAt: "x",
+    eventIdentity: {
+      eventName: "Runtime CTF",
+      eventTheme: "Ship",
+      eventLocation: "Online",
+      eventContact: "org@example.org",
+      eventDiscord: "https://discord.gg/x",
+    },
   });
   m.effectivePaused.mockReturnValue(true);
 });
@@ -66,6 +90,9 @@ describe("exportEventBundle", () => {
     expect("paused" in bundle.settings).toBe(false);
     expect("updatedBy" in bundle.settings).toBe(false);
     expect(bundle.event.name).toBe("Runtime CTF");
+    // Finding I4: one settings read, not two — resolveSite over the settings
+    // already in hand, never a second getSite() HGETALL.
+    expect(getSite).not.toHaveBeenCalled();
     const s = JSON.stringify(bundle);
     expect(s).not.toContain("org@example.com");
     expect(s).not.toContain('"admins"');

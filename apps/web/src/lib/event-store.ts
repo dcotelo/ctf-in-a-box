@@ -3,7 +3,7 @@ import { exportBundle as exportClassic, clearChallenges, importBundle as importC
 import { exportBundle as exportQuiz, clearQuestions, importBundle as importQuiz } from "@/lib/quiz-store";
 import { exportBundle as exportAi, clearAiChallenges, importBundle as importAi } from "@/lib/ai-store";
 import { effectivePaused, getAdminSettings, resetEvent, updateAdminSettings, type SettingsPatch } from "@/lib/admin-store";
-import { getSite } from "@/lib/site";
+import { resolveSite } from "@/lib/site";
 import { EVENT_BUNDLE_VERSION, EVENT_POLICY_FIELDS, type EventBundle, type EventPolicySettings } from "@/lib/event-io";
 import { isModuleId, type ModuleId, type ModuleOverrides } from "@/lib/modules";
 import { defaultEnabledModules, secureDevAvailable } from "@/lib/module-defaults";
@@ -19,7 +19,9 @@ const LIVE_WARNING = "This event is live — do not publish this bundle while co
  *  challenge/question definitions, never solves/attempts), the
  *  `EVENT_POLICY_FIELDS`-picked subset of `getAdminSettings()`, and the
  *  runtime identity fields (`name`, `theme`, `dates`, `location`,
- *  `ctfStartsAt`) picked off `getSite()` below. No `ctf:user:*`/
+ *  `ctfStartsAt`) resolved via `resolveSite` over that SAME settings read
+ *  (see below — no second HGETALL, no fail-open in an export). No
+ *  `ctf:user:*`/
  *  `ctf:team:*`/solve/attempt/hint/audit key is ever touched here.
  *
  *  `bundle.event` deliberately omits `contactEmail` and `discordUrl` even
@@ -34,7 +36,12 @@ const LIVE_WARNING = "This event is live — do not publish this bundle while co
  *  policy (see event-io.ts's header). */
 export async function exportEventBundle(now: Date = new Date()): Promise<{ bundle: EventBundle; warnings: string[] }> {
   const settings = await getAdminSettings();
-  const site = await getSite();
+  // resolveSite over the SAME settings read, not a second getSite() call: a
+  // Redis blip between two independent reads could otherwise write an archive
+  // whose event.name is the fail-open default while bundle.settings came from
+  // the good getAdminSettings() read that already succeeded (getAdminSettings
+  // throws on failure; getSite() fails open to null instead).
+  const site = resolveSite(settings.eventIdentity);
   const warnings: string[] = [];
 
   // Narrow out secure-development BEFORE `isEnabled`/the bundle write, same
