@@ -248,9 +248,16 @@ ENV
   # `config --services` (no service names) is asked instead, which
   # discriminates on --profile the same way `up` actually would.
   cd "$REPO"
+  need_docker
   run env SRH_TOKEN=t SCORER_TOKEN=t BETTER_AUTH_SECRET=t REDIS_PASSWORD=p \
     GITHUB_CLIENT_ID=i GITHUB_CLIENT_SECRET=s SCORE_IMAGE=x \
     docker compose -f docker-compose.yml --profile app config --services
+  # The absence check below passes trivially against an ERROR — a compose file
+  # that failed to interpolate lists no services at all, which is exactly what
+  # "sync is not here" looks like. The exit status and the positive `app` line
+  # are what make the negative assertion mean something.
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qx 'app'
   [ -z "$(echo "$output" | grep -x 'sync')" ]
 }
 
