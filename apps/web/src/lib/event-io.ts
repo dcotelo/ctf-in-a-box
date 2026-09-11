@@ -137,7 +137,12 @@ export function parseEventBundle(raw: string): EventParseResult {
   const errors: EventImportError[] = [];
 
   const version = parsed.version;
-  if (typeof version !== "number" || version < EVENT_BUNDLE_MIN_VERSION || version > EVENT_BUNDLE_VERSION) {
+  if (
+    typeof version !== "number" ||
+    !Number.isInteger(version) ||
+    version < EVENT_BUNDLE_MIN_VERSION ||
+    version > EVENT_BUNDLE_VERSION
+  ) {
     if (typeof version === "number" && version > EVENT_BUNDLE_VERSION) {
       errors.push({
         where: "version",

@@ -71,6 +71,14 @@ describe("parseEventBundle", () => {
     expect(res.errors[0].message).toContain("Unsupported bundle version");
   });
 
+  it("refuses a fractional version — the range check must not admit an undefined schema", () => {
+    const res = parseEventBundle(JSON.stringify({ ...valid, version: 1.5 }));
+    expect(res.ok).toBe(false);
+    if (res.ok) throw new Error("unreachable");
+    expect(res.errors[0].where).toBe("version");
+    expect(res.errors[0].message).toContain("Unsupported bundle version");
+  });
+
   // CodeRabbit round 1 (issue #386 PR 3): `secureDevTargets` joined
   // EVENT_POLICY_FIELDS without a version bump, so a pre-change v1 parser
   // (whose own EVENT_POLICY_FIELDS never heard of the field) would reject a
