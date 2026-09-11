@@ -49,6 +49,7 @@ export default async function FaqPage() {
   const ctx: FaqContext = {
     appCount: enabledApps.length,
     appList: joinAppNames(enabledApps.map((a) => a.name)),
+    // "" is a misconfiguration the setup wizard refuses and `doctor` flags; prose that interpolates the org is not guarded here (#386).
     githubOrg: getGithubOrg(),
     hintCost: (await getHintNotice()).cost,
   };
