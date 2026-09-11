@@ -139,7 +139,8 @@ link) but sync's `loadConfig(env)` throws on it instead, because for sync a
 missing org is a genuine misconfiguration, not "nothing to poll" — the two
 components deliberately disagree; runtime `/admin` settings are read once
 per request through the `cache()`-memoized snapshot
-(`getAdminSettingsSnapshot`/`resolved-modules.ts`), not a second independent
+(`getAdminSettingsSnapshot` in `enabled-modules.ts`, imported by
+`resolved-modules.ts`, `enabled-apps.ts` and `site.ts`), not a second independent
 read that could disagree with the first on an unlucky Redis blip; and `/`
 is never statically prerendered (CI's `.next/server/app/index.html`
 must-not-exist check, ci.yml's `app` job) — a prerendered `/` would bake

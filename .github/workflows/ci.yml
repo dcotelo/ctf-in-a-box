@@ -312,8 +312,10 @@ jobs:
           # vitest, which then ignores the filter and runs EVERY file. The
           # `upstash` filter matches every `*.upstash.test.ts` suite plus the
           # two mocked `upstash.test.ts` files, which need no Redis and are
-          # harmless here. The generated event config already exists from the
-          # test step above.
+          # harmless here. The app needs no generated config for any of this —
+          # config v2 (#386) reads GITHUB_ORG/ADMIN_LOGINS from the environment
+          # at runtime, so there is nothing here for an earlier step to have
+          # generated.
           corepack pnpm exec vitest run upstash --no-file-parallelism
         env:
           UPSTASH_REDIS_REST_URL: http://localhost:8079
