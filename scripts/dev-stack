@@ -40,9 +40,11 @@ resolve_env_file() {
 
 # Strip a trailing annotation and whitespace off an env value: a real .env may
 # read `GITHUB_ORG=myorg  # the disposable one`, the same shape
-# setup/ctf-setup.sh's reader tolerates.
+# setup/ctf-setup.sh's reader tolerates. Only a `#` AFTER whitespace starts a
+# comment — `EVENT_URL=https://host/#/route` keeps its fragment, which is
+# also how compose reads the file.
 strip_comment() {
-  printf '%s' "$1" | sed -e 's/[[:space:]]*#.*$//' -e 's/[[:space:]]*$//'
+  printf '%s' "$1" | sed -e 's/[[:space:]][[:space:]]*#.*$//' -e 's/[[:space:]]*$//'
 }
 
 # Read one KEY=value out of a named env file (BSD/GNU-safe sed, no -E). A
@@ -67,22 +69,37 @@ file_value() {
 # and only when `gh` is both installed and logged in, so a box without it just
 # gets an empty allowlist. Empty is not fatal here: the stack still runs and
 # /admin forbids everyone, which the summary says, and how to fix it.
+#
+# `${VAR+x}`, not `${VAR:-}`: compose gives the shell precedence over the env
+# file, so an EXPORTED empty value is exactly what the containers get and
+# must not be papered over with the file's (or gh's) value — only an unset
+# variable falls through. Otherwise the file this writes and the summary
+# below could name an allowlist the app is not using.
 resolve_admin_logins() {
-  local v="${ADMIN_LOGINS:-}"
-  if [ -z "$v" ]; then v="$(file_value ADMIN_LOGINS .env)"; fi
-  if [ -z "$v" ]; then
-    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-      v="$(gh api user --jq .login 2>/dev/null || true)"
+  local v
+  if [ "${ADMIN_LOGINS+x}" = x ]; then
+    v="$ADMIN_LOGINS"
+  else
+    v="$(file_value ADMIN_LOGINS .env)"
+    if [ -z "$v" ]; then
+      if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+        v="$(gh api user --jq .login 2>/dev/null || true)"
+      fi
     fi
   fi
   printf '%s' "$v"
 }
 
 # No fallback for the org: an invented one would put wrong fork links on
-# /challenges. Empty means the app shows bare repo names.
+# /challenges. Empty means the app shows bare repo names. Same unset-vs-empty
+# rule as above.
 resolve_github_org() {
-  local v="${GITHUB_ORG:-}"
-  if [ -z "$v" ]; then v="$(file_value GITHUB_ORG .env)"; fi
+  local v
+  if [ "${GITHUB_ORG+x}" = x ]; then
+    v="$GITHUB_ORG"
+  else
+    v="$(file_value GITHUB_ORG .env)"
+  fi
   printf '%s' "$v"
 }
 
@@ -318,11 +335,11 @@ cmd_up() {
   seed_demo_data
 
   # What the CONTAINERS got, in their precedence order — an exported value
-  # beats the env file for compose, so reading the file alone could print an
-  # allowlist the app is not using.
+  # (even an empty one) beats the env file for compose, so reading the file
+  # alone could print an allowlist the app is not using.
   local admins org org_note
-  admins="${ADMIN_LOGINS:-$(env_value ADMIN_LOGINS)}"
-  org="${GITHUB_ORG:-$(env_value GITHUB_ORG)}"
+  if [ "${ADMIN_LOGINS+x}" = x ]; then admins="$ADMIN_LOGINS"; else admins="$(env_value ADMIN_LOGINS)"; fi
+  if [ "${GITHUB_ORG+x}" = x ]; then org="$GITHUB_ORG"; else org="$(env_value GITHUB_ORG)"; fi
   if [ -n "$org" ]; then
     org_note="$org (fork links on /challenges point there)"
   else
