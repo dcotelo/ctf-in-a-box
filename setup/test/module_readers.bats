@@ -131,10 +131,22 @@ bash_verdict() {
   # Config v2 PR2 (#386): a targets: key is not read or validated at all any
   # more, so its absence never refuses the run — doctor reaches the per-target
   # matrix and checks all six targets.tsv rows regardless.
-  run bash "$SCRIPT" doctor --config "$CORPUS/accept-secure-development-without-targets.yaml"
+  #
+  # Stubbed gh/docker/openssl on PATH — the same blanket exit-0 stub the
+  # wizard tests use (_stub_prereqs in ctf_setup.bats) — so this exercises the
+  # real cmd_doctor deterministically instead of making live `gh api` calls,
+  # and so its exit status (❌ cells fail the exit code) is a fixed value to
+  # assert on rather than whatever an unauthenticated API happens to return.
+  mkdir -p "$BATS_TEST_TMPDIR/stubbin"
+  for c in gh docker openssl; do
+    printf '#!/bin/sh\nexit 0\n' > "$BATS_TEST_TMPDIR/stubbin/$c"
+    chmod +x "$BATS_TEST_TMPDIR/stubbin/$c"
+  done
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" doctor --config "$CORPUS/accept-secure-development-without-targets.yaml"
   [ -z "$(printf '%s' "$output" | grep -F 'no targets under modules.secure-development')" ]
   printf '%s' "$output" | grep -qE '^dvwa '
   printf '%s' "$output" | grep -qE '^juice-shop '
+  [ "$status" -eq 1 ]
 }
 
 @test "a bare modules: key is rejected, not read as a quiz-only event" {

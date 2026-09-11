@@ -380,6 +380,12 @@ cmd_doctor() {
   # at the top, not as a footnote under a green table.
   ingest_mismatch_warn
 
+  # Fails loudly (naming targets.tsv) if it can't produce a target list —
+  # every loop below reads targets.tsv through all_targets(), which itself
+  # exits 0 with empty output on a missing/unreadable/empty file, so this
+  # runs once, up front, before any of them.
+  require_targets
+
   # secure-development IS enabled: every event provisions all six targets.tsv
   # targets, regardless of event.yaml (config v2 PR2, #386) — which ones
   # actually RUN is chosen at runtime in /admin -> Secure Development.
@@ -1119,6 +1125,7 @@ cmd_org() {
     exit 1
   }
 
+  require_targets
   echo "== provisioning $org (idempotent — re-run safe)"
   local t
   for t in $(all_targets); do
@@ -1156,6 +1163,7 @@ cmd_render() {
     return 0
   fi
 
+  require_targets
   local targets_arr=()
   local t
   for t in $(all_targets); do targets_arr+=("$t"); done
@@ -1185,6 +1193,7 @@ cmd_upgrade() {
   fi
 
   local want; want="$(template_workflow_version)" || exit 1
+  require_targets
   echo "== upgrading scoring workflows in $org to v$want (idempotent — re-run safe)"
   local t
   for t in $(all_targets); do
@@ -1217,6 +1226,7 @@ cmd_teardown() {
     echo "== event.yaml has no secure-development module — nothing to tear down."
     return 0
   fi
+  require_targets
   local t
   for t in $(all_targets); do
     local r; r="$(prov_repo_name "$t")" || exit 1
@@ -1508,6 +1518,25 @@ all_targets() {
     out="$out${out:+ }$t"
   done < <(grep -v '^[[:space:]]*#' "$PROVENANCE_TSV" | cut -f1)
   printf '%s' "$out"
+}
+
+# Every command that provisions/inspects targets loops `for t in $(...)` over
+# all_targets() — and all_targets() exits 0 with EMPTY output when
+# targets.tsv is missing, unreadable or has no non-comment rows. Without this
+# guard that turns "the TSV is broken" into a silent no-op: `org` prints its
+# banner and forks nothing, `doctor` prints a header-only matrix, both exit 0
+# as if there were zero targets to provision rather than a broken input.
+#
+# Call this as a PLAIN statement before the loop, never as `$(require_targets)`
+# in the loop's own `in` list: `exit` inside a command substitution only kills
+# that subshell, so `for t in $(require_targets); do` would still exit 0 —
+# the loop just runs zero times, silently, which is the exact bug this guards
+# against. Called plain, `exit 1` here does what it looks like it does.
+require_targets() {
+  if [ -z "$(all_targets)" ]; then
+    echo "$PROVENANCE_TSV: no targets to provision (file missing, unreadable or empty)" >&2
+    exit 1
+  fi
 }
 
 # Validate an answer to the "which modules" question. Every token must be a

@@ -115,7 +115,7 @@ modules:
 EOF
   run env SCORE_IMAGE=ghcr.io/myorg/score:v1 bash "$SCRIPT" org --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  [[ "$output" != *"unknown target: nope"* ]]
+  if printf '%s' "$output" | grep -qF -- "unknown target: nope"; then echo "FAIL: reported unknown target: nope"; return 1; fi
   echo "$output" | grep -qF -- "gh repo fork digininja/DVWA --org test-event-org --fork-name DVWA"
   echo "$output" | grep -qF -- "gh repo fork juice-shop/juice-shop --org test-event-org --fork-name juice-shop"
 }
@@ -167,9 +167,9 @@ modules:
 EOF
   run bash "$SCRIPT" teardown --dry-run --config event.yaml
   [ "$status" -eq 0 ]
-  [[ "$output" != *"unknown target: nope"* ]]
+  if printf '%s' "$output" | grep -qF -- "unknown target: nope"; then echo "FAIL: reported unknown target: nope"; return 1; fi
   # Must NOT emit archive command with empty repo name
-  [[ "$output" != *"gh repo archive test-event-org/ --yes"* ]]
+  if printf '%s' "$output" | grep -qF -- "gh repo archive test-event-org/ --yes"; then echo "FAIL: archived an empty repo name"; return 1; fi
   echo "$output" | grep -qF -- "gh repo archive test-event-org/DVWA --yes"
 }
 
@@ -271,6 +271,22 @@ EOF
   run bash "$SCRIPT" doctor --dry-run --config event.yaml
   [ "$status" -eq 0 ]
   printf '%s' "$output" | grep -qi 'no .*content'
+}
+
+@test "doctor: empty targets.tsv fails loudly, naming the file (require_targets guard)" {
+  # all_targets() exits 0 with empty output when targets.tsv is missing,
+  # unreadable or has no non-comment rows — require_targets() is the guard
+  # that turns that into a loud failure instead of a silent no-op (a
+  # header-only matrix exiting 0). Run against a COPY of the script so
+  # SCRIPT_DIR resolves to a directory with a broken targets.tsv, leaving the
+  # real setup/targets.tsv untouched.
+  mkdir -p brokentsv
+  cp "$SCRIPT" brokentsv/ctf-setup.sh
+  : > brokentsv/targets.tsv
+  run bash brokentsv/ctf-setup.sh doctor --dry-run --config event.yaml
+  printf '%s' "$output" | grep -qF 'targets.tsv'
+  printf '%s' "$output" | grep -qF 'no targets to provision'
+  [ "$status" -ne 0 ]
 }
 
 @test "unknown module key in event.yaml fails loudly (bash mirrors sync/src/config.js)" {
