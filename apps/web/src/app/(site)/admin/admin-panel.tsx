@@ -8,6 +8,7 @@ import { headers } from "next/headers";
 import PageHeader from "@/components/page-header";
 import { phaseFromSettings } from "@/components/phase";
 import { requireAdmin } from "@/lib/admin-auth";
+import { envAdmins } from "@/lib/bootstrap-env";
 import { getAdminSettings, getSyncStatus } from "@/lib/admin-store";
 import { joinAppNames } from "@/lib/apps";
 import { getEnabledApps } from "@/lib/enabled-apps";
@@ -24,6 +25,12 @@ export default async function AdminPanel({ tab }: { tab?: string }) {
   const gate = await requireAdmin(await headers());
 
   if (!gate.ok) {
+    // A boolean only — never the list itself. When ADMIN_LOGINS is empty,
+    // requireAdmin refuses EVERY login (admin-auth.ts's fail-closed check,
+    // runtime grants included), so this wall is the one surface an organizer
+    // stuck in that state actually sees; the Admins tab is unreachable to
+    // say it instead.
+    const envEmpty = envAdmins().size === 0;
     return (
       <div className="flex flex-col gap-8">
         <PageHeader eyebrow="Admin" title="Forbidden" description="Organizer access only." />
@@ -31,6 +38,11 @@ export default async function AdminPanel({ tab }: { tab?: string }) {
           <p className="text-sm text-zinc-400">
             You need to be an organizer to view this page.
           </p>
+          {envEmpty && (
+            <p role="alert" className="mt-3 text-sm text-[#e53e3e]">
+              ADMIN_LOGINS is empty — nobody can use /admin until it is set and the app restarts.
+            </p>
+          )}
         </div>
       </div>
     );

@@ -119,7 +119,7 @@ describe("DELETE", () => {
   // THE LOCKOUT GUARD. A baked admin is the recovery path when a runtime grant
   // goes wrong; if this could remove one, a mistake — or a compromised admin
   // session — could lock every organizer out of /admin with no way back but a
-  // rebuild.
+  // restart.
   it("refuses to remove a BAKED admin, and does not touch the store", async () => {
     isEnvAdmin.mockReturnValue(true);
     const res = await DELETE(req({ login: "alice" }));

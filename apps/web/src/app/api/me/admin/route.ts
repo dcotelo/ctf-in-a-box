@@ -5,10 +5,10 @@ import { isAdminLogin } from "@/lib/admin-auth";
 /**
  * "Is the CURRENT session an admin?" — one boolean, for menu visibility.
  *
- * The header's admin link is rendered by a Client Component, which cannot read
- * Redis, so it has always used the baked allowlist alone. That was complete
- * when baked was the only kind of admin; with runtime grants (issue #147) it
- * would hide the link from exactly the people the feature exists for.
+ * The header's admin link is rendered by a Client Component, which can read
+ * neither Redis nor `ADMIN_LOGINS` (server-only, config v2) — so this route
+ * is the only way it learns admin status at all, for env admins and runtime
+ * grants alike (issue #147).
  *
  * This route discloses NOTHING but the caller's own status: no list, no other
  * logins, and it is not gated on being an admin — a non-admin gets `false`,

@@ -28,19 +28,12 @@ type AdminRow = { login: string; baked: boolean };
 export const ENV_ADMIN_BADGE = ".env";
 export const ENV_ADMIN_CHANGE_HINT = "restart to change";
 
-/** The fail-closed notice for an EMPTY `ADMIN_LOGINS`: when there is no env
- *  admin at all, nobody — not even a runtime grant — can reach /admin (see
- *  `isAdminLogin`'s comment in admin-auth.ts), so the panel says so plainly
- *  rather than silently showing an admin list with nothing marked baked.
- *  `null` before `rows` has loaded (nothing is known yet) and once there is
- *  at least one env admin. */
-export function envAdminsEmptyNotice(rows: AdminRow[] | null): string | null {
-  if (rows === null) return null;
-  const hasEnvAdmin = rows.some((r) => r.baked);
-  return hasEnvAdmin
-    ? null
-    : "ADMIN_LOGINS is empty — nobody can use /admin until it is set and the app restarts.";
-}
+// There is no "ADMIN_LOGINS is empty" notice on THIS tab, deliberately: an
+// empty env set means requireAdmin refuses every login (admin-auth.ts's
+// fail-closed check), so nobody — not even a runtime grant — can ever reach
+// this tab while it is empty. That warning belongs on the Forbidden wall
+// (admin-panel.tsx), the one surface an organizer in that state actually
+// sees.
 
 /** The confirmation for removing a runtime admin (audit F8).
  *
@@ -125,7 +118,6 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
 
   const granted = rows?.filter((r) => !r.baked) ?? [];
   const baked = rows?.filter((r) => r.baked) ?? [];
-  const envEmptyNotice = envAdminsEmptyNotice(rows);
 
   return (
     <section className="flex flex-col gap-4">
@@ -134,12 +126,6 @@ export default function AdminAdminsTab({ viewerLogin }: { viewerLogin: string })
         <p className="mt-1 text-sm text-zinc-400">
           Grant or revoke organizer access without restarting. Changes take effect immediately.
         </p>
-
-        {envEmptyNotice && (
-          <p role="alert" className="mt-3 text-sm text-[#e53e3e]">
-            {envEmptyNotice}
-          </p>
-        )}
 
         <form
           className="mt-4 flex flex-wrap items-center gap-2"
