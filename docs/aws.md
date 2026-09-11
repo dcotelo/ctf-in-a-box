@@ -117,10 +117,12 @@ building fork links with no org. Both are refused at plan time, not at apply.
 The image tag is content-addressed to the git revision, and ECR is set to
 immutable tags, so re-running with nothing changed reports "already there" and
 skips the build instead of failing. A dirty `apps/web` tree gets
-`<revision>-dirty-<digest>`, where the digest covers the uncommitted build
-context — two different work-in-progress trees on one commit therefore never
-share a tag, which on an immutable registry would have redeployed the first
-image. `./deploy.sh --dry-run` prints every command and runs none of them.
+`<revision>-dirty-<digest>`, where the digest is taken over the uncommitted
+build context: change the tracked diff, or the set or contents of the untracked
+files under `apps/web`, and the tag changes with it. That is what keeps a
+work-in-progress deploy off the tag an earlier one already pushed, which on an
+immutable registry would have redeployed the earlier image.
+`./deploy.sh --dry-run` prints every command and runs none of them.
 
 Watch a rollout:
 

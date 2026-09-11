@@ -164,10 +164,12 @@ nothing needs rebuilding.
 The tag is content-addressed to the git revision, and the ECR repository is
 `IMMUTABLE`. Same code gives the same tag, so a re-run reports "already there"
 and skips the build rather than failing. A dirty `apps/web` tree is tagged
-`<revision>-dirty-<digest>`, the digest covering the uncommitted build context
-(the tracked diff plus the untracked files), so two different work-in-progress
-trees on one commit cannot collide on a tag the registry refuses to overwrite.
-`deploy.sh --dry-run` prints every command and runs none of them.
+`<revision>-dirty-<digest>`, where the digest is taken over the uncommitted
+build context: change the tracked diff, or the set or contents of the
+untracked files under `apps/web`, and the tag changes with it. That is what
+keeps a work-in-progress deploy from landing on the tag an earlier one already
+pushed — which, on an immutable registry, would have redeployed the earlier
+image. `deploy.sh --dry-run` prints every command and runs none of them.
 
 ## Variables
 

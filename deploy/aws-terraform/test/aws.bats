@@ -87,7 +87,7 @@ setup() {
 # file without touching the checkout the suite is running in. deploy.sh derives
 # its ROOT from its own location, so the copy has to sit at the same depth.
 fake_repo() {
-  local repo="$BATS_TEST_TMPDIR/repo"
+  local repo="$BATS_TEST_TMPDIR/${1:-repo}"
   mkdir -p "$repo/deploy/aws-terraform" "$repo/apps/web"
   cp "$SCRIPT" "$repo/deploy/aws-terraform/deploy.sh"
   printf 'FROM scratch\n' > "$repo/apps/web/Dockerfile"
@@ -129,6 +129,28 @@ dry_run_tag() {
   printf 'export const x = 2\n' > "$repo/apps/web/new-file.ts"
   changed="$(dry_run_tag "$repo")"
   [ -n "$first" ] && [ "$first" = "$again" ] && [ "$first" != "$changed" ]
+}
+
+@test "one file's contents cannot impersonate a second file's record" {
+  # The framing bug, as a tree. Streamed unframed — pathname, then raw bytes —
+  # a SINGLE file whose content reads like the next record's header serializes
+  # byte-for-byte like TWO files:
+  #
+  #   a = "untracked:apps/web/b\npayload"   ->  untracked:apps/web/a
+  #                                             untracked:apps/web/b
+  #                                             payload
+  #   a = "" and b = "payload"              ->  (the same three lines)
+  #
+  # Both trees would take one tag, and on an immutable registry the second
+  # deploy would ship the first tree's image. One repo, so HEAD — and therefore
+  # the tag's revision half — is identical and only the digest can differ.
+  repo="$(fake_repo)"
+  printf 'untracked:apps/web/b\npayload' > "$repo/apps/web/a"
+  first="$(dry_run_tag "$repo")"
+  : > "$repo/apps/web/a"
+  printf 'payload' > "$repo/apps/web/b"
+  second="$(dry_run_tag "$repo")"
+  [ -n "$first" ] && [ -n "$second" ] && [ "$first" != "$second" ]
 }
 
 @test "a dirty apps/web tree is tagged apart from the clean commit" {

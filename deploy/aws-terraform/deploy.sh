@@ -125,9 +125,18 @@ need terraform "read the stack's outputs"
 # FIRST one's image, silently. So the tag carries a short digest of the build
 # context's changes: the tracked diff under apps/web plus every untracked file
 # in it. Same working tree, same digest; a changed one gets its own tag.
+#
+# The digest input is FRAMED, which is the whole of its correctness. Streaming
+# a pathname and then its raw bytes is ambiguous: one file whose content reads
+# like the next record's header serializes exactly like two files, and the two
+# trees would share a tag. So nothing variable-length is ever concatenated —
+# every record is fixed-shape fields (a hex hash, or a pathname, which cannot
+# contain one) separated by NUL, which cannot occur in either.
 context_digest() {
   {
-    git -C "$ROOT" diff HEAD -- apps/web
+    # The tracked diff enters as ONE field: its own hash, not its bytes.
+    printf 'diff\0%s\0' \
+      "$(git -C "$ROOT" diff HEAD -- apps/web | git -C "$ROOT" hash-object --stdin)"
     # node_modules/ and .next/ are gitignored, so --exclude-standard already
     # drops them; naming them too keeps the context stable for anyone whose
     # local ignore rules differ, and they are build OUTPUT, not build input.
@@ -137,11 +146,15 @@ context_digest() {
         apps/web/node_modules/* | apps/web/.next/*) continue ;;
         esac
         # The path as well as the content: an identical file added under a
-        # different name is a different build context.
-        echo "untracked:$rel"
+        # different name is a different build context. `-` for anything that
+        # is not a readable regular file (a dangling symlink, say) — the name
+        # still counts, and the entry is still a fixed number of fields.
         if [ -f "$ROOT/$rel" ]; then
-          cat "$ROOT/$rel"
+          hash="$(git -C "$ROOT" hash-object --no-filters -- "$ROOT/$rel")"
+        else
+          hash="-"
         fi
+        printf 'untracked\0%s\0%s\0' "$rel" "$hash"
       done
   } | git -C "$ROOT" hash-object --stdin
 }
