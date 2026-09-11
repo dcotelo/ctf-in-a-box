@@ -97,19 +97,22 @@ variable "acm_certificate_arn" {
 // --- what this event runs --------------------------------------------------
 
 variable "github_org" {
-  description = "The GitHub org the target forks live in. Read by the app and by sync at runtime (config v2, #386) — mirrored into both task definitions like scorer_image. Empty is legal for an app-only or push-mode event: the app falls back to bare repo names. It is NOT legal in poll mode — sync (when it runs) refuses to start without one."
+  description = "The GitHub org the target forks live in. Read by the app and by sync at runtime (config v2, #386) — mirrored into both task definitions like scorer_image. Empty is legal only for an event that does not run Secure Development: the app then falls back to bare repo names. Required whenever enable_secure_development is true, in BOTH ingest modes."
   type        = string
   default     = ""
 
-  // Same shape as sync_image's rule, and for the same reason: poll mode is
-  // the one combination that actually runs sync, and sync/src/config.js
+  // Tied to enable_secure_development, not to the ingest mode, because the
+  // org is what the module IS: `setup/ctf-setup.sh` requires GITHUB_ORG for
+  // every non-empty SCORE_IMAGE, poll or push. In poll mode sync/src/config.js
   // throws at startup rather than treating a blank GITHUB_ORG as "nothing to
-  // poll". Left unset here it would be a plan-time silence followed by a
-  // task that never reaches a steady state — this turns it into the same
-  // plan-time sentence scorer_image/sync_image already get.
+  // poll"; in push mode nothing throws, and that is the worse failure — the
+  // scorer runs, the app renders bare repo names, and /challenges links every
+  // contestant at a fork that has no org to live in. Left unset either way it
+  // would be a plan-time silence; this turns it into the same plan-time
+  // sentence scorer_image/sync_image already get.
   validation {
-    condition     = !(var.enable_secure_development && var.score_ingest == "poll") || var.github_org != ""
-    error_message = "github_org must be set when Secure Development runs in poll mode — sync exits at startup without GITHUB_ORG (see sync/src/config.js)."
+    condition     = !var.enable_secure_development || var.github_org != ""
+    error_message = "github_org must be set when Secure Development is enabled, in either ingest mode — sync exits at startup without GITHUB_ORG (see sync/src/config.js), and push mode leaves the app with no org to build fork links from."
   }
 }
 
@@ -128,9 +131,12 @@ variable "admin_logins" {
   //
   // The `default = ""` stays so the refusal is THIS sentence rather than a
   // bare interactive prompt for an unset variable in a non-interactive plan.
+  // A non-empty STRING is not a non-empty roster: " , " passes `!= ""` and
+  // then splits into nothing but blanks, which is the same lockout with a
+  // longer variable. The rule counts actual logins.
   validation {
-    condition     = var.admin_logins != ""
-    error_message = "admin_logins must name at least one GitHub login — with an empty list /admin would forbid everyone, including whoever ran the apply."
+    condition     = length(compact([for login in split(",", var.admin_logins) : trimspace(login)])) > 0
+    error_message = "admin_logins must name at least one GitHub login — a list of blanks (or an empty one) leaves /admin forbidding everyone, including whoever ran the apply."
   }
 }
 

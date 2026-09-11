@@ -163,8 +163,11 @@ nothing needs rebuilding.
 
 The tag is content-addressed to the git revision, and the ECR repository is
 `IMMUTABLE`. Same code gives the same tag, so a re-run reports "already there"
-and skips the build rather than failing. `deploy.sh --dry-run` prints every
-command and runs none of them.
+and skips the build rather than failing. A dirty `apps/web` tree is tagged
+`<revision>-dirty-<digest>`, the digest covering the uncommitted build context
+(the tracked diff plus the untracked files), so two different work-in-progress
+trees on one commit cannot collide on a tag the registry refuses to overwrite.
+`deploy.sh --dry-run` prints every command and runs none of them.
 
 ## Variables
 
@@ -175,13 +178,14 @@ Every input is in `variables.tf` with its own description;
 |---|---|
 | `domain` | The session cookie is `Secure`. There is no working HTTP mode. |
 | `app_image` | What ECS runs. `deploy.sh` writes it into `image.auto.tfvars`; the example carries a placeholder for the bootstrap apply. |
-| `admin_logins` | The `/admin` allowlist. Its `validation` block refuses an empty one at plan time — that would forbid everyone, you included, and the only fix is another apply. |
+| `admin_logins` | The `/admin` allowlist. Its `validation` block refuses a roster with no login at plan time — empty, or nothing but separators like `" , "` — because that would forbid everyone, you included, and the only fix is another apply. |
 
 `github_org` and `admin_logins` are read at runtime, not baked into the image.
-`github_org` defaults to `""` and is legal empty only for an app-only or
-push-mode event — the app falls back to bare repo names; with Secure
-Development enabled in poll mode its own `validation` block requires it,
-because sync exits at startup without one.
+`github_org` defaults to `""` and is legal empty only for an event that does
+not run Secure Development — the app then falls back to bare repo names. With
+`enable_secure_development = true` its own `validation` block requires it in
+**both** ingest modes: poll mode's sync exits at startup without one, and push
+mode would run a scorer whose forks have no org for the app to link to.
 
 ## Tear down
 

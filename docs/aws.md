@@ -109,11 +109,18 @@ build-time configuration at all (config v2, #386): `github_org` and
 path's equivalent of the wizard's `.env` — and mirrored into the app's
 task-definition environment the same way `scorer_image` is. Change either and
 `terraform apply` rolls it out; nothing has to be rebuilt or repushed.
+`admin_logins` must name at least one login, and `github_org` is required
+whenever `enable_secure_development` is true — in **both** ingest modes, since
+poll mode's sync exits at startup without one and push mode would leave the app
+building fork links with no org. Both are refused at plan time, not at apply.
 
 The image tag is content-addressed to the git revision, and ECR is set to
 immutable tags, so re-running with nothing changed reports "already there" and
-skips the build instead of failing. `./deploy.sh --dry-run` prints every
-command and runs none of them.
+skips the build instead of failing. A dirty `apps/web` tree gets
+`<revision>-dirty-<digest>`, where the digest covers the uncommitted build
+context — two different work-in-progress trees on one commit therefore never
+share a tag, which on an immutable registry would have redeployed the first
+image. `./deploy.sh --dry-run` prints every command and runs none of them.
 
 Watch a rollout:
 

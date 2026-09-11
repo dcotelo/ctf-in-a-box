@@ -43,8 +43,11 @@ acm_certificate_arn = ""
 
 # The GitHub org the target forks live in. Read by the app (and by sync, when
 # it runs) at runtime — this is the `.env`-equivalent of GITHUB_ORG for the
-# wizard-driven path. Empty falls back to bare repo names for the app; sync
-# refuses to start without one.
+# wizard-driven path. REQUIRED whenever enable_secure_development is true, in
+# either ingest mode: poll mode's sync refuses to start without one, and in
+# push mode the app would link contestants at forks with no org. Leave it empty
+# only for an event that does not run Secure Development — the app then falls
+# back to bare repo names.
 # github_org = "your-event-org"
 
 # REQUIRED. Comma-separated GitHub logins allowed into /admin. Read by the app

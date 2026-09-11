@@ -166,10 +166,12 @@ run "poll_mode_without_a_sync_image_is_refused" {
   expect_failures = [var.sync_image]
 }
 
-// github_org's rule is the same shape as sync_image's, for the same reason:
-// poll mode is the one combination that actually runs sync, and sync exits
-// at startup without GITHUB_ORG (sync/src/config.js) rather than treating a
-// blank one as "nothing to poll".
+// github_org's rule follows enable_secure_development, NOT the ingest mode:
+// setup/ctf-setup.sh requires GITHUB_ORG for every non-empty SCORE_IMAGE. In
+// poll mode sync exits at startup without one (sync/src/config.js); in push
+// mode nothing exits, and the app quietly renders fork links with no org.
+// Both modes are asserted, because a rule that only covered poll would look
+// identical on the poll run alone.
 run "poll_mode_without_a_github_org_is_refused" {
   command = plan
 
@@ -180,6 +182,37 @@ run "poll_mode_without_a_github_org_is_refused" {
   }
 
   expect_failures = [var.github_org]
+}
+
+run "push_mode_without_a_github_org_is_refused_too" {
+  command = plan
+
+  variables {
+    enable_secure_development = true
+    score_ingest              = "push"
+    sync_image                = ""
+    github_org                = ""
+  }
+
+  expect_failures = [var.github_org]
+}
+
+// The complement: push mode WITH an org plans cleanly, so the rule above
+// cannot be satisfied by refusing push mode outright.
+run "push_mode_with_a_github_org_is_accepted" {
+  command = plan
+
+  variables {
+    enable_secure_development = true
+    score_ingest              = "push"
+    sync_image                = ""
+    github_org                = "owasp-ctf-test"
+  }
+
+  assert {
+    condition     = length(aws_ecs_service.scorer) == 1
+    error_message = "A push-mode event with an org must still run the scorer."
+  }
 }
 
 // The complement of the run above, and the reason sync_image's rule is
@@ -210,6 +243,18 @@ run "an_event_with_no_admin_logins_is_refused" {
 
   variables {
     admin_logins = ""
+  }
+
+  expect_failures = [var.admin_logins]
+}
+
+// The same lockout, spelled so that a `!= ""` rule would wave it through: a
+// roster of separators splits into nothing but blanks.
+run "an_admin_roster_of_blanks_is_refused" {
+  command = plan
+
+  variables {
+    admin_logins = " , "
   }
 
   expect_failures = [var.admin_logins]
