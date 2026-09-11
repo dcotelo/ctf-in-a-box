@@ -7,8 +7,6 @@
 // catalogues by lib/__tests__/apps-catalogue.test.ts; regenerate them after any
 // `scripts/vendor-rubric.sh` run rather than editing them by hand.
 
-import { eventConfig } from "@/lib/event-config";
-
 export type AppId =
   | "juice-shop"
   | "dvwa"
@@ -25,8 +23,6 @@ export type AppMeta = {
   accent: string;
   /** Single-path SVG (24x24, stroke) rendered in the app chip. */
   icon: string;
-  /** The event fork players exploit and patch (public at event start). */
-  repo: string;
   challengeCount: number;
   maxPoints: number;
   /** Difficulty range in stars (points per challenge). */
@@ -45,19 +41,20 @@ const REPO_NAMES: Record<AppId, string> = {
   vampi: "VAmPI",
 };
 
-/** Fork link for a target under the event's configured GitHub org. */
-function repoUrl(id: AppId): string {
-  return `https://github.com/${eventConfig.githubOrg}/${REPO_NAMES[id]}`;
-}
-
 /**
- * Fork link for a target under an arbitrary org — the config-v2 replacement
- * for `repoUrl`, which is pinned to `eventConfig.githubOrg`. `null` for an
- * empty org rather than a broken `https://github.com//DVWA` link.
+ * Fork link for a target under an arbitrary org. `null` for an empty org
+ * rather than a broken `https://github.com//DVWA` link — callers render
+ * plain text (via `repoName`) in that case instead of a link.
  */
 export function forkUrl(org: string, id: AppId): string | null {
   if (!org) return null;
   return `https://github.com/${org}/${REPO_NAMES[id]}`;
+}
+
+/** The fork repo's bare name (no org prefix) — what to show when there is no
+ *  configured `GITHUB_ORG` and `forkUrl` returns `null`. */
+export function repoName(id: AppId): string {
+  return REPO_NAMES[id];
 }
 
 export const apps: AppMeta[] = [
@@ -67,7 +64,6 @@ export const apps: AppMeta[] = [
     blurb: "The classic deliberately-insecure web shop. OWASP Web Top 10.",
     accent: "#d4a017",
     icon: "M8 2h8l-1 7H9L8 2ZM9 9h6l1 13H8L9 9Z",
-    repo: repoUrl("juice-shop"),
     challengeCount: 38,
     maxPoints: 141,
     stars: [1, 6],
@@ -78,7 +74,6 @@ export const apps: AppMeta[] = [
     blurb: "Damn Vulnerable Web Application: PHP classics at three security levels.",
     accent: "#e53e3e",
     icon: "M12 2 3 7v6c0 5 4 8 9 9 5-1 9-4 9-9V7l-9-5Z",
-    repo: repoUrl("dvwa"),
     challengeCount: 55,
     maxPoints: 108,
     stars: [1, 3],
@@ -89,7 +84,6 @@ export const apps: AppMeta[] = [
     blurb: "OWASP's guided insecure Java app with lesson-driven exploitation and fixes.",
     accent: "#2563eb",
     icon: "M4 8c2-3 6-4 8-4s6 1 8 4l-2 10a6 6 0 0 1-12 0L4 8Z",
-    repo: repoUrl("webgoat"),
     challengeCount: 69,
     maxPoints: 137,
     stars: [1, 3],
@@ -100,7 +94,6 @@ export const apps: AppMeta[] = [
     blurb: "Web and mobile security training platform with layered challenge levels.",
     accent: "#8f8f9b",
     icon: "M12 3 4 9v12h16V9l-8-6ZM9 21v-6h6v6",
-    repo: repoUrl("securityshepherd"),
     challengeCount: 40,
     maxPoints: 79,
     stars: [1, 3],
@@ -111,7 +104,6 @@ export const apps: AppMeta[] = [
     blurb: "OWASP's extensible vulnerability playground with the deepest challenge pool.",
     accent: "#22c55e",
     icon: "M12 2v4M12 18v4M2 12h4M18 12h4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z",
-    repo: repoUrl("vulnerableapp"),
     challengeCount: 110,
     maxPoints: 187,
     stars: [1, 3],
@@ -122,7 +114,6 @@ export const apps: AppMeta[] = [
     blurb: "Vulnerable REST API: the OWASP API Security Top 10 track.",
     accent: "#a1a1aa",
     icon: "M4 6h16v12H4zM4 10h16M8 6v12",
-    repo: repoUrl("vampi"),
     challengeCount: 9,
     maxPoints: 16,
     stars: [1, 3],

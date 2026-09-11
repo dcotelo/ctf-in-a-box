@@ -9,6 +9,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 vi.mock("server-only", () => ({}));
 vi.mock("next/server", () => ({ connection: async () => {} }));
 vi.mock("@/lib/enabled-modules", () => import("@/test/enabled-modules-baked"));
+// The page now reads GITHUB_ORG through bootstrap-env rather than the
+// (now-dead) event.yaml bake — this is the "nothing moved" suite, so it pins
+// the same org the vendored config used to bake.
+vi.mock("@/lib/bootstrap-env", () => ({ getGithubOrg: () => "OWASP-CTF" }));
 vi.mock("@/lib/admin-store", () => ({
   // `getResolvedModules` reads `enabledModuleIds` off this settings object
   // and falls back to the (baked-shim-mocked) `defaultModuleIds`, which is

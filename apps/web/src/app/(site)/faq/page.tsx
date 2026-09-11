@@ -22,7 +22,7 @@ import type { FaqContext, ModuleFaq } from "@/lib/modules";
 import { getModuleFaq, getResolvedModules } from "@/lib/resolved-modules";
 import { getHintNotice } from "@/lib/hint-store";
 import { getSite } from "@/lib/site";
-import { eventConfig } from "@/lib/event-config";
+import { getGithubOrg } from "@/lib/bootstrap-env";
 
 export async function generateMetadata(): Promise<Metadata> {
   const event = await getSite();
@@ -49,7 +49,7 @@ export default async function FaqPage() {
   const ctx: FaqContext = {
     appCount: enabledApps.length,
     appList: joinAppNames(enabledApps.map((a) => a.name)),
-    githubOrg: eventConfig.githubOrg,
+    githubOrg: getGithubOrg(),
     hintCost: (await getHintNotice()).cost,
   };
 

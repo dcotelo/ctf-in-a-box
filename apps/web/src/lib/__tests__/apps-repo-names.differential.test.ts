@@ -17,8 +17,12 @@
 // of itself — green whether or not either matched what is actually forked.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { apps } from "@/lib/apps";
-import { eventConfig } from "@/lib/event-config";
+import { apps, forkUrl } from "@/lib/apps";
+
+// Fork links no longer carry a baked org (config v2: PR 3A) — `forkUrl` takes
+// one explicitly, the same as every real caller does with `getGithubOrg()`.
+// An arbitrary org proves the mapping without pinning to any particular one.
+const ORG = "acceptance-org";
 
 /** `setup/targets.tsv` as `{ target: forkRepoName }`, exactly as
  *  `prov_repo_name` derives it: column 2's basename. */
@@ -48,8 +52,8 @@ describe("fork links vs setup/targets.tsv", () => {
     for (const app of apps) {
       // Casing is part of the assertion: github.com/<org>/dvwa is not the DVWA
       // fork, and the whole URL is compared so the org half stays pinned to
-      // the event's configured org rather than a hardcoded one.
-      expect(app.repo, app.id).toBe(`https://github.com/${eventConfig.githubOrg}/${expected[app.id]}`);
+      // whichever org the caller passes in.
+      expect(forkUrl(ORG, app.id), app.id).toBe(`https://github.com/${ORG}/${expected[app.id]}`);
     }
   });
 

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import PageHeader from "@/components/page-header";
 import ChallengeGrid from "@/components/challenge-grid";
-import { joinAppNames } from "@/lib/apps";
+import { forkUrl, joinAppNames, type AppId } from "@/lib/apps";
 import { getEnabledApps, getEnabledTotals } from "@/lib/enabled-apps";
 import { getChallengeCatalog } from "@/lib/challenges";
 import { getLeaderboardSource } from "@/lib/leaderboard/source";
@@ -11,6 +11,7 @@ import { getLeaderboardSource } from "@/lib/leaderboard/source";
 // ai keep theirs on their own boards.
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
+import { getGithubOrg } from "@/lib/bootstrap-env";
 import { isModuleLive } from "@/lib/enabled-modules";
 import { getResolvedModules } from "@/lib/resolved-modules";
 
@@ -80,6 +81,13 @@ export default async function ChallengesPage() {
   }
   const sortedApps = [...enabledApps].sort((a, b) => a.name.localeCompare(b.name));
 
+  // Fork links come from the runtime `GITHUB_ORG`, not the (now-dead)
+  // `event.yaml` bake — `null` per target when it is unset, which
+  // `ChallengeGrid` renders as plain text rather than a broken link.
+  const org = getGithubOrg();
+  const forkUrls: Partial<Record<AppId, string | null>> = {};
+  for (const app of sortedApps) forkUrls[app.id] = forkUrl(org, app.id);
+
   // The count always follows the runtime enabled-target subset, never the
   // scorer's catalogue total (CodeRabbit round 1): the scorer's /challenges
   // route returns every target in its rubric, not the app's runtime
@@ -106,7 +114,13 @@ export default async function ChallengesPage() {
           to see which test, fix, and push again. Your best result always stands.
         </span>
       </p>
-      <ChallengeGrid apps={sortedApps} catalog={catalog?.byApp ?? null} hints={{}} solved={solved} />
+      <ChallengeGrid
+        apps={sortedApps}
+        catalog={catalog?.byApp ?? null}
+        hints={{}}
+        solved={solved}
+        forkUrls={forkUrls}
+      />
     </div>
   );
 }

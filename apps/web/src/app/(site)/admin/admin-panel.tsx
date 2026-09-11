@@ -13,7 +13,7 @@ import { getAdminSettings, getSyncStatus } from "@/lib/admin-store";
 import { joinAppNames } from "@/lib/apps";
 import { getEnabledApps } from "@/lib/enabled-apps";
 import { defaultModuleIds } from "@/lib/enabled-modules";
-import { eventConfig } from "@/lib/event-config";
+import { getGithubOrg } from "@/lib/bootstrap-env";
 import type { ModuleSetupContent, OrgContext } from "@/lib/modules";
 import { secureDevAvailable } from "@/lib/module-defaults";
 import { getModuleSetup, getResolvedModules } from "@/lib/resolved-modules";
@@ -77,7 +77,7 @@ export default async function AdminPanel({ tab }: { tab?: string }) {
   const ctx: OrgContext = {
     appCount: enabledApps.length,
     appList: joinAppNames(enabledApps.map((a) => a.name)),
-    githubOrg: eventConfig.githubOrg,
+    githubOrg: getGithubOrg(),
   };
   const setups: Partial<Record<string, ModuleSetupContent>> = {};
   for (const mod of modules) {

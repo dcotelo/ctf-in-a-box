@@ -24,6 +24,7 @@ import HintButton from "@/components/hint-button";
 import OwaspBadge from "@/components/owasp-badge";
 import ProgressSummary from "@/components/progress-summary";
 import type { AppId, AppMeta } from "@/lib/apps";
+import { repoName } from "@/lib/apps";
 import type { CatalogChallenge, ChallengeCatalog } from "@/lib/challenges";
 import { authClient } from "@/lib/auth-client";
 
@@ -48,11 +49,23 @@ function hintTextId(app: AppId, id: string): string {
 const SELECT =
   "rounded-md border border-white/10 bg-[#12121e] px-2.5 py-2 text-sm text-white focus-visible:border-[#d4a017]/70 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017]";
 
+/** A target's fork link, or plain repo-name text when no `GITHUB_ORG` is
+ *  configured (`url` is `null`) — never a link to `https://github.com//DVWA`. */
+function RepoLink({ app, url, className }: { app: AppId; url: string | null | undefined; className: string }) {
+  if (!url) return <span className={className}>{repoName(app)}</span>;
+  return (
+    <a href={url} target="_blank" rel="noopener noreferrer" className={className}>
+      {url.replace("https://github.com/", "")}
+    </a>
+  );
+}
+
 export default function ChallengeGrid({
   apps,
   catalog,
   hints,
   solved = {},
+  forkUrls = {},
 }: {
   apps: AppMeta[];
   catalog: ChallengeCatalog["byApp"] | null;
@@ -61,6 +74,10 @@ export default function ChallengeGrid({
   /** The viewer's own patched challenge keys, per app — {} signed out or when
    *  the source carries no per-challenge results. */
   solved?: Partial<Record<AppId, string[]>>;
+  /** Each target's fork link under the event's `GITHUB_ORG`, computed
+   *  server-side by the page — `null`/absent (no configured org) renders
+   *  plain repo-name text instead of a link. */
+  forkUrls?: Partial<Record<AppId, string | null>>;
 }) {
   const [query, setQuery] = useState("");
   const [target, setTarget] = useState<"all" | AppId>("all");
@@ -170,14 +187,7 @@ export default function ChallengeGrid({
               <p className="font-mono text-xs tabular-nums text-muted">
                 {app.stars[0]}–{app.stars[1]} pts per challenge
               </p>
-              <a
-                href={app.repo}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ds-link w-fit font-mono text-xs"
-              >
-                {app.repo.replace("https://github.com/", "")}
-              </a>
+              <RepoLink app={app.id} url={forkUrls[app.id]} className="ds-link w-fit font-mono text-xs" />
             </article>
           </li>
         ))}
@@ -370,14 +380,11 @@ export default function ChallengeGrid({
                 </button>
                 {/* Outside the toggle — a link nested in a button is invalid
                     and unreachable by keyboard. */}
-                <a
-                  href={app.repo}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <RepoLink
+                  app={app.id}
+                  url={forkUrls[app.id]}
                   className="ml-auto hidden flex-none font-mono text-xs text-muted transition-colors hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d4a017] sm:inline"
-                >
-                  {app.repo.replace("https://github.com/", "")}
-                </a>
+                />
               </div>
               {/* The viewer's ground gained on this target, visible collapsed. */}
               {anySolvedData && (
@@ -396,14 +403,11 @@ export default function ChallengeGrid({
                     code at all. The expanded panel has the width, so the link
                     lives here for the narrow layout and there for the wide
                     one, never both. */}
-                <a
-                  href={app.repo}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <RepoLink
+                  app={app.id}
+                  url={forkUrls[app.id]}
                   className="ds-link mx-4 mb-1 mt-2 block w-fit font-mono text-xs sm:hidden"
-                >
-                  {app.repo.replace("https://github.com/", "")}
-                </a>
+                />
                 <ul className="grid grid-cols-1 gap-x-8 px-4 pb-3 pt-2 md:grid-cols-2">
                   {rows.map((c) => {
                     const isSolved = solvedSets.get(app.id)?.has(c.id) ?? false;
