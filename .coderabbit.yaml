@@ -69,7 +69,12 @@ reviews:
         `.env.example` lists) or a `ctf:admin:settings` field, a registered
         module id, a ctf:* Redis key name or value shape, the scorer's POST
         /score or GET /leaderboard payloads, GET /api/public/scoring, or a
-        ctf-setup.sh subcommand or flag.
+        ctf-setup.sh subcommand or flag. Apply it equally when a PR
+        RE-INTRODUCES a key a release removed — `SCORE_INGEST`, or the judge's
+        `SCORE_API`/`SCORE_TOKEN` (push ingest, removed in v0.6 by #377, ADR
+        56). Those names are not in `.env.example` any more, so the
+        list-membership test above cannot catch them, and bringing one back is
+        a contract change in the same way taking one away was.
     - label: "infrastructure"
       instructions: >
         Apply when the PR modifies docker-compose*.yml, a Dockerfile, the
@@ -753,9 +758,11 @@ reviews:
           Runtime config schema — removing or renaming a `.env` key
           (`GITHUB_ORG`, `ADMIN_LOGINS`, `SCORE_IMAGE`, `EVENT_URL`, or
           another key `.env.example` lists) or a `ctf:admin:settings` field,
-          changing enum membership (module ids, target ids), or making an
-          optional key required. `.env.example`, `ctf-setup.sh`'s wizard, and
-          the docs must change too.
+          changing enum membership (module ids, target ids), making an
+          optional key required, or re-introducing a key a release removed
+          (`SCORE_INGEST` — push ingest, removed in v0.6 by #377).
+          `.env.example`, `ctf-setup.sh`'s wizard, and the docs must change
+          too.
 
           Module contract — anything in docs/modules.md a third-party module
           implements against.
@@ -776,6 +783,9 @@ reviews:
           Environment variables — removing or renaming GITHUB_ORG,
           ADMIN_LOGINS, EVENT_URL, SCORE_IMAGE, LEADERBOARD_API_URL,
           LEADERBOARD_SOURCE, UPSTASH_REDIS_REST_URL, DEMO_MODE, or similar.
+          Re-introducing SCORE_INGEST, or the judge's SCORE_API/SCORE_TOKEN,
+          counts too: push ingest was removed in v0.6 (#377) and a diff that
+          brings the key back is proposing a second score transport.
 
           Required: a "Breaking changes" section in the PR description saying
           what changed and what an organizer or module author must update, plus
