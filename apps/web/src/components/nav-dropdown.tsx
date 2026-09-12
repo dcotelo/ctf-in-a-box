@@ -18,6 +18,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 import type { NavLink } from "@/lib/site";
+import MenuChevron from "@/components/menu-chevron";
 import { itemKeyAction, takePendingFocus, triggerKeyAction } from "@/lib/nav-menu-keys";
 
 export default function NavDropdown({
@@ -136,18 +137,7 @@ export default function NavDropdown({
         }`}
       >
         {label}
-        <svg
-          width="10"
-          height="10"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          aria-hidden="true"
-          className={`transition-transform ${open ? "rotate-180" : ""}`}
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
+        <MenuChevron open={open} />
       </button>
 
       {open && (
