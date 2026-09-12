@@ -13,7 +13,7 @@ Why it is shaped this way: [ADR 42](../../docs/decisions.md).
 | `fly.toml` | The app: which container serves the public, the volume, the machine size |
 | `render-compose.sh` | Turns the repo's `docker-compose.yml` into the compose file Fly deploys |
 | `deploy.sh` | `init` (env file) and the deploy: build, push, mirror, render, secrets, deploy |
-| `test/fly.bats` | 56 assertions, run by CI's `shell` job. Nothing is ever deployed |
+| `test/fly.bats` | 88 tests, run by CI's `shell` job. Nothing is ever deployed |
 | `compose.fly.yml` | **Generated**, gitignored. The rendered file Fly actually reads |
 
 ## It runs the real compose file
@@ -103,12 +103,13 @@ deploys. `-h`/`--help` prints the same list.
 |---|---|---|
 | `--dry-run` | both | Print every `fly` command, run none; secret values redacted |
 | `--env-file <path>` | both | The Fly env file `init` writes and a deploy reads. Default `.env.fly` |
-| `--from <path>` | `init` only | The compose `.env` copied (or `--refresh`ed) from. Default `.env` |
+| `--from <path>` | both | The compose `.env` copied (or `--refresh`ed) from; on a deploy, the file the credential-drift check compares against. Default `.env` |
 | `--region <code>` | `init` only | Write `FLY_REGION` without prompting; three lowercase letters, validated; ignored if the env file already has one |
-| `--refresh` | `init` only | Re-copy the external-system credentials from `--from` — including `GITHUB_ORG` and `ADMIN_LOGINS` — overwriting; leaves `EVENT_URL`, `FLY_REGION`, `SRH_TOKEN`, `REDIS_PASSWORD`, then falls through to the top-up prompts |
+| `--refresh` | `init` only | Re-copy the external-system credentials from `--from` — including `GITHUB_ORG` and `ADMIN_LOGINS` — overwriting; leaves `EVENT_URL`, `FLY_REGION`, `SRH_TOKEN`, `REDIS_PASSWORD`, then falls through to the top-up prompts. An **explicitly blank** source value clears only `GITHUB_APP_INSTALLATION_ID`; for every other key, and for any key **absent** from `--from` altogether, it keeps the destination value and says so |
 | `--skip-build` | deploy only | Reuse the images already in Fly's registry; safe for a config change, since the app image bakes nothing but its health-check build stamp. NOT safe after changing `SCORE_IMAGE`: the skip path reuses the `SCORER_IMAGE` already in the registry and never mirrors the new one, so deploy once without the flag first |
 
-`--from`, `--region` and `--refresh` are parsed on a deploy too, and ignored.
+`--region` and `--refresh` are parsed on a deploy too, and ignored. `--from`
+is not: a deploy compares `.env.fly` against it (see the guards below).
 
 **`FLY_REGION`** lives in the env file. `init` sets it once — existing value
 kept, else `--region`, else a prompt defaulting to `fly.toml`'s
@@ -137,6 +138,25 @@ Each of these caught a real mistake:
   once WITHOUT `--skip-build`
 - images built `--platform linux/amd64`; an arm64 image deploys cleanly and
   then dies with an exec format error
+- **credential drift between `.env.fly` and `--from` → warns**, before the
+  build and again in the closing summary, naming every external-system key
+  that differs and **never a value**. It warns rather than refuses because
+  per-environment OAuth apps are legitimate. A re-created event org whose
+  `.env` was rewritten and whose `.env.fly` was not deployed the old
+  credentials in silence: every sign-in bounced with
+  `?error=application_suspended` and `sync` logged a GitHub 401 on every poll
+  (#381)
+- **a key assigned twice in the env file → warns**, naming it and saying the
+  last assignment wins (a live `.env.fly` had `SCORE_INGEST` and `SCORE_IMAGE`
+  twice, so editing the first line changed nothing); `init --refresh` collapses
+  the duplicates of any key it rewrites
+- `init --refresh` obeys an **explicitly blank** source value for
+  `GITHUB_APP_INSTALLATION_ID` only — that blank means "auto-discover the
+  installation" — and keeps the deployed value for every other key, since
+  clearing `ADMIN_LOGINS`, `GITHUB_ORG` or `SCORE_IMAGE` would break a live
+  event. A key **absent** from `--from` keeps the deployed value for every key
+  including the installation id: only an explicit assignment clears, so
+  refreshing from a partial `.env` cannot unpin an id nobody mentioned
 
 ## Two things this deployment cannot give you
 

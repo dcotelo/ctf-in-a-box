@@ -8,6 +8,28 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Fixed: a Fly deploy could ship the previous event org's credentials
+  without saying so (#381).** `.env.fly` and `.env` were never compared, so a
+  re-created org — new OAuth app, new sync App — deployed silently against the
+  old one: every sign-in bounced with `?error=application_suspended` and `sync`
+  logged `GitHub 401 minting installation token` on every poll, while the
+  deploy, `/health` and `doctor` (which reads `.env`) all looked fine. A deploy
+  now names every external-system key the two files disagree on — before the
+  build and again in the closing summary, key names only, never a value — and
+  warns rather than refuses, since per-environment OAuth apps are legitimate.
+  `init --refresh` gained three fixes of its own: an explicitly blank
+  `GITHUB_APP_INSTALLATION_ID=` line in `.env` now **clears** the pinned id
+  (that blank means "let `sync` auto-discover the installation"), while an
+  explicit blank of any other key keeps the deployed value and says why rather
+  than locking everyone out of `/admin`, and a key absent from `.env`
+  altogether keeps the deployed value for every key including the installation
+  id; the source is read in every form `docker compose`
+  accepts (`KEY = value`, `KEY: value`, quoted, `export`-prefixed) instead of
+  `KEY=value` alone; and a line in any of those forms is now replaced in place
+  rather than having a second assignment appended. Both `init` and a deploy
+  warn when the env file assigns a key twice, naming it and stating that the
+  last assignment wins.
+
 - **Fixed: the challenge browser's OWASP category filter offered codes from
   targets the organizer had unticked (#391).** The scorer's catalogue carries
   every target in its rubric, and the filter was built from the whole of it

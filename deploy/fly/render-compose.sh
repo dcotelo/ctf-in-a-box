@@ -192,8 +192,15 @@ env_value() {
   # `KEY = value` is legal too: compose's parser trims whitespace around the
   # key and after the `=`, and hands back `value`. Matching only `KEY=` made
   # such a line invisible here — deploy.sh called the key empty and refused,
-  # render-compose.sh dropped secdev — while compose read it fine.
-  dotenv_value "$(sed -n "s/^[[:space:]]*$1[[:space:]]*[:=][[:space:]]*//p" "$ENV_FILE" | tail -1)"
+  # render-compose.sh dropped secdev — while compose read it fine. `KEY: value`
+  # and a leading `export ` go the same way; both were checked against
+  # `docker compose config` rather than guessed. deploy.sh reads the same
+  # grammar (there through dotenv_file_value, which takes the file as an
+  # argument); the two must agree, since they read the same file.
+  dotenv_value "$(sed -n \
+    -e "s/^[[:space:]]*export[[:space:]]\{1,\}//" \
+    -e "s/^[[:space:]]*$1[[:space:]]*[:=][[:space:]]*//p" \
+    "$ENV_FILE" | tail -1)"
 }
 
 if [ -z "$PROFILES" ]; then
