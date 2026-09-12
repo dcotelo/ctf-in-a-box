@@ -53,9 +53,15 @@ keys into `.env`, in this order:
   The app parses this string and drops every entry that is not shaped like a
   GitHub login, so `,`, `" , "` and `alice@example.com` all reach it as an
   empty allowlist — indistinguishable from unset, and `/admin` then forbids
-  *everyone*, silently, until somebody tries to open the panel. Give it at
-  least one real login; the wizard and `deploy/fly/deploy.sh` both refuse the
-  value outright rather than let it deploy.
+  *everyone*. How loudly depends on what you got wrong: a non-empty entry that
+  fails the login format makes `envAdmins` log ONE warning naming the *count*
+  of dropped entries and nothing else (never the entries — one might be a
+  pasted secret), once per process, at `admin-auth.ts`'s module load;
+  separator-only or whitespace-only input drops nothing and logs nothing at
+  all. Either way the panel is fail-closed and you find out when somebody
+  tries to open it. Give it at least one real login; the wizard and
+  `deploy/fly/deploy.sh` both refuse the value outright rather than let it
+  deploy.
 - **`SCORE_IMAGE`**, from one question — *"Run Secure Development (fork the
   six targets and score patch PRs)?"*. Yes writes the scorer image reference
   (your existing one, else `ghcr.io/<org>/score:latest`); no writes it empty.
