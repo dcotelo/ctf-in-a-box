@@ -89,7 +89,9 @@ networks — the app tier has no route to `redis:6379` at all.
 `.env` is the **bootstrap** plane: the box's secrets plus four keys read once
 at container start — `GITHUB_ORG` (the fork org), `ADMIN_LOGINS` (the
 bootstrap admins allowlist), `SCORE_IMAGE` (the scorer image, and by its
-non-emptiness whether the event runs Secure Development at all), and
+non-emptiness whether Secure Development is *available* — it adds the compose
+profile and seeds the default module set, while `/admin` still decides what is
+live), and
 `EVENT_URL`, which lives only here so one deployment recipe travels to any
 hostname ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)).
 `ctf:admin:settings` is the **runtime** plane: everything an organizer
@@ -98,8 +100,13 @@ changes during the event, written from `/admin` and re-read on every request
 [ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)),
 which Secure Development targets run (`secureDevTargets`, defaulting to all
 six), the event's identity, the schedule, hints and team caps. Nothing is
-baked into an image, and no toggle needs a rebuild. `ctf-setup.sh` forks and
-provisions all six targets unconditionally; the panel picks the live subset.
+baked into an image, and no toggle needs a rebuild.
+
+The two planes divide *provisioning* from *selection*. With `SCORE_IMAGE`
+non-empty, `ctf-setup.sh` forks and provisions all six targets, every time;
+with it empty it skips provisioning altogether and there is nothing on GitHub
+to select from. `/admin` then owns both live choices: `enabledModules`, and the
+`secureDevTargets` subset of those six that contestants actually see.
 
 ## The project's names
 

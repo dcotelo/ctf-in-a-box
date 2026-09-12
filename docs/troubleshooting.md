@@ -62,7 +62,9 @@ a runtime read, not a build arg:
 docker compose --profile secdev --profile app up -d
 ```
 
-(Quiz/classic-only events: `--profile app` alone.) Compose must also be
+(Quiz/classic/ai-only events: `--profile app` alone; a push-mode event:
+`--profile push --profile app`, since `secdev` would start the poller push
+mode has no use for.) Compose must also be
 passing `ADMIN_LOGINS` through to the app service's environment — it is on
 recent `docker-compose.yml`, but a customized override file that dropped it
 would reproduce this exact symptom.

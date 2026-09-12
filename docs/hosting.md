@@ -193,11 +193,17 @@ also needs:
 - `docker login ghcr.io` with a `write:packages` token. The `org` subcommand
   ends with `docker push ghcr.io/<org>/score:latest`, so it needs write access
   to your own org's packages.
-- A scorer image named by `SCORE_IMAGE`. There is no default: with it empty,
-  `ctf-setup org` says so and skips every fork/mirror/poll step (exit 0 — an
-  app-only event provisions nothing on GitHub and needs no org at all). Set it
-  and the same command provisions all six targets of `setup/targets.tsv`;
-  `/admin` then picks the subset contestants see.
+- A scorer image named by `SCORE_IMAGE`. Empty means this event does not run
+  Secure Development: `ctf-setup org` says so and skips every
+  fork/mirror/poll step (exit 0 — an app-only event provisions nothing on
+  GitHub and needs no org at all). Set it and the same command provisions all
+  six targets of `setup/targets.tsv`; `/admin` then picks the subset
+  contestants see.
+  <br>Compose is the one place that does *not* treat empty as "no scorer": the
+  `scorer` service falls back to the private `ghcr.io/owasp-ctf/score:latest`,
+  so selecting `--profile secdev` or `--profile push` with no `SCORE_IMAGE` of
+  your own fails the pull rather than starting anything. Your own image is
+  what makes those profiles usable.
 
 Build your own scorer from the engine in `scorer/` — that is the
 self-contained path and it needs no upstream access:
@@ -358,14 +364,18 @@ fix it by hand, add one line to `.env` and bring the stack back up:
 
 ```sh
 echo "REDIS_PASSWORD=$(openssl rand -hex 24)" >> .env
-docker compose --profile secdev --profile app up -d   # SCORE_IMAGE set
 docker compose --profile app up -d                    # SCORE_IMAGE empty
+docker compose --profile secdev --profile app up -d   # set, SCORE_INGEST=poll
+docker compose --profile push --profile app up -d     # set, SCORE_INGEST=push
 ```
 
-Pick the line that matches your `.env`: `--profile secdev` is added **iff
-`SCORE_IMAGE` is non-empty**, and a quiz-, Classic- or AI-only event has no
-scorer image to pull. (Passing `--profile secdev` without one fails at `up`,
-trying to pull the private upstream fallback.)
+Pick the line that matches your `.env` — the same three-way choice as the
+bring-up table above. A Secure Development profile is added **iff `SCORE_IMAGE`
+is non-empty** (a quiz-, Classic- or AI-only event has no scorer image to pull,
+and passing one anyway fails at `up` on the private upstream fallback), and
+*which* of the two follows `SCORE_INGEST`: `secdev` carries the `sync` poller
+that push mode does not want, so a push event uses `push`, which brings up the
+scorer alone.
 
 Nothing else changes: no data migration, and the `redis-data` volume is
 untouched. Only `redis` itself (its `requirepass`) and `srh` (its connection
@@ -744,8 +754,8 @@ provisioning — is documented in [docs/modules.md](modules.md).
 | What you changed | What it takes |
 |---|---|
 | Anything in `/admin` — modules, targets, identity, schedule, hints, teams, content | Nothing. It is live on the next request. |
-| `ADMIN_LOGINS`, `GITHUB_ORG`, `EVENT_URL`, a secret | Edit `.env`, then bring the stack back up to recreate the containers with the new environment — `docker compose --profile secdev --profile app up -d` with a `SCORE_IMAGE` set, `docker compose --profile app up -d` without one. No rebuild either way. |
-| `SCORE_IMAGE` (adding or dropping Secure Development's containers) | Edit `.env`, then bring the stack up with — or without — `--profile secdev`. |
+| `ADMIN_LOGINS`, `GITHUB_ORG`, `EVENT_URL`, a secret | Edit `.env`, then bring the stack back up with the same profiles the table above gives for your event — `--profile app` with no `SCORE_IMAGE`, `--profile secdev --profile app` for poll, `--profile push --profile app` for push — to recreate the containers with the new environment. No rebuild in any case. |
+| `SCORE_IMAGE` (adding or dropping Secure Development's containers) | Edit `.env`, then bring the stack up with the profiles that now match it: a Secure Development profile once it is set (`secdev` for poll, `push` for push), `--profile app` alone once it is empty. |
 | The app's own code (a kit upgrade) | `docker compose --profile app build app`, then `up -d`. |
 
 The contestant app (`apps/web/`, vendored — see
