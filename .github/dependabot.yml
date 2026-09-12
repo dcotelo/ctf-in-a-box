@@ -76,6 +76,25 @@ updates:
       node-base:
         patterns:
           - "node"
+    # Patches only, and that is the whole point of the entry above: refresh the
+    # digest so a pin (#49) does not become a stale, unpatched base. The Node
+    # LINE is a different decision. CI runs Node 22 everywhere (AGENTS.md), and
+    # the images are what make the shipped containers agree with the version the
+    # suites gate on — a sync/scorer suite was green on 25 and red on 22 in CI
+    # (#256, an unref'd AbortSignal.timeout timer), so shipping a runtime the
+    # suites never ran on is exactly the trade this repo refuses.
+    #
+    # Minor is ignored alongside major because it moves the runtime just as
+    # much: node:26-alpine arrived as a "group bump" in #398 and failed four
+    # jobs on `corepack enable` — corepack is unbundled from Node 25 onward.
+    # Changing the line is a deliberate migration (CI matrix, the `engines`
+    # floor, the pnpm bootstrap and all three images, suites re-run on the new
+    # runtime), never a dependency PR.
+    ignore:
+      - dependency-name: "node"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
 
   - package-ecosystem: "docker-compose"
     directory: "/"
