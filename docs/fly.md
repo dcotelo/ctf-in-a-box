@@ -43,9 +43,12 @@ public port — and it is also the only mode that works here: in compose, push
 mode relies on caddy routing `POST /score` to `scorer:4000`, and there is no
 caddy on a Fly machine. `fly.toml` exposes only the app on port 3000, so a
 fork's Action would POST its score into a 404 and nothing would say so.
-`deploy.sh` therefore refuses an `.env.fly` with `SCORE_INGEST=push` (issue
-#373 tracks routing `/score` if push on Fly is ever wanted). Keep
-`SCORE_INGEST` at `poll` (or unset) in `.env`/`.env.fly` to match.
+`deploy.sh` therefore refuses an `.env.fly` with `SCORE_INGEST=push`, and
+always will: push ingest is deprecated and removed in v0.7
+([#377](https://github.com/dcotelo/owasp-ctf/issues/377)), so Fly stays
+poll-only rather than growing a `/score` route (that was issue #373, now
+closed). Keep `SCORE_INGEST` at `poll` (or unset) in `.env`/`.env.fly` to
+match.
 
 ## Deploy
 

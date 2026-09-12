@@ -65,8 +65,10 @@ admin_logins = "octocat,defunkt"
 # Same rule as the compose profiles.
 # enable_secure_development = true
 
-# "poll" runs sync, which polls GitHub for score comments. "push" has the
-# fork's Action POST to the scorer instead, and runs no poller at all.
+# "poll" runs sync, which polls GitHub for score comments — and it is the
+# transport going forward. "push" has the fork's Action POST to the scorer
+# instead, and runs no poller at all; it is DEPRECATED (issue #377) and
+# removed in v0.7, so leave this at "poll".
 # score_ingest = "poll"
 
 # Images for the secure-development services. Ignored when

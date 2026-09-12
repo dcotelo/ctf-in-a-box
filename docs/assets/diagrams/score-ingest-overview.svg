@@ -1,6 +1,6 @@
 <svg viewBox="0 0 880 448" xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-labelledby="ttl desc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
-  <title id="ttl">Score ingest: poll or push</title>
-  <desc id="desc">A contestant answers quiz and classic challenges in the app, and opens a patch PR against a fork in the event org. The fork's Action runs the rubric and posts a score comment on the PR. In poll mode sync pulls that comment about every 30 seconds, needing no inbound network surface; in push mode the Action POSTs the score straight to the scorer, which is near-instant but needs a public URL. Either way the score enters through one audited writer, the scorer's bearer-authed POST /score, which validates and writes monotonically into redis, and the app renders the live leaderboard from it.</desc>
+  <title id="ttl">Score ingest: poll, with push deprecated</title>
+  <desc id="desc">A contestant answers quiz and classic challenges in the app, and opens a patch PR against a fork in the event org. The fork's Action runs the rubric and posts a score comment on the PR. In poll mode sync pulls that comment about every 30 seconds, needing no inbound network surface; poll is the transport. The push branch, drawn faded and marked deprecated, has the Action POST the score straight to the scorer — near-instant but needing a public URL — and it is removed in v0.7 per issue 377. Either way the score enters through one audited writer, the scorer's bearer-authed POST /score, which validates and writes monotonically into redis, and the app renders the live leaderboard from it.</desc>
   <style>
     :root {
       --bg: #ffffff; --surface: #f6f8fa; --surface-2: #eaeef2; --border: #d0d7de;
@@ -47,7 +47,7 @@
   <rect width="880" height="448" rx="10" fill="var(--bg)"/>
   <rect x="0.5" y="0.5" width="879" height="447" rx="10" fill="none" stroke="var(--border)"/>
 
-  <text x="440" y="20" text-anchor="middle" font-size="10" fill="var(--text-muted)" letter-spacing="1">SCORE INGEST &#183; POLL OR PUSH, ONE AUDITED WRITER</text>
+  <text x="440" y="20" text-anchor="middle" font-size="10" fill="var(--text-muted)" letter-spacing="1">SCORE INGEST &#183; POLL, ONE AUDITED WRITER &#183; PUSH DEPRECATED</text>
 
   <rect x="30" y="180" width="170" height="56" rx="8" fill="var(--surface)" stroke="var(--border)"/>
   <text x="115" y="214" text-anchor="middle" font-size="13" fill="var(--text-bright)">contestant</text>
@@ -85,8 +85,14 @@
   <line class="dgm-ants" x1="660" y1="286" x2="660" y2="244" stroke="var(--accent-2)" marker-end="url(#arB)"/>
   <text x="672" y="270" font-size="10" fill="var(--accent-2)">poll &#183; every ~30 s</text>
 
-  <path class="dgm-ants" d="M474 300 C 512 290 522 248 550 222" fill="none" stroke="var(--accent)" marker-end="url(#arR)"/>
-  <text x="516" y="246" text-anchor="end" font-size="10" fill="var(--accent)">push &#183; instant</text>
+  <!-- The push branch is DEPRECATED (issue #377) and removed in v0.7: drawn
+       faded, with the deprecation on the label itself, so the picture says it
+       even when the caption is not read. -->
+  <g opacity="0.5">
+    <path class="dgm-ants" d="M474 300 C 512 290 522 248 550 222" fill="none" stroke="var(--accent)" marker-end="url(#arR)"/>
+    <text x="516" y="240" text-anchor="end" font-size="10" fill="var(--accent)">push &#183; instant</text>
+    <text x="516" y="254" text-anchor="end" font-size="10" fill="var(--accent)">DEPRECATED (#377)</text>
+  </g>
 
   <rect class="dgm-gate" x="560" y="180" width="200" height="56" rx="8" fill="var(--surface)" stroke="var(--border)"/>
   <text x="660" y="214" text-anchor="middle" font-size="13" fill="var(--text-bright)">scorer</text>
@@ -94,6 +100,6 @@
   <line class="dgm-flow" x1="556" y1="208" x2="468" y2="208" stroke="var(--text-muted)" marker-end="url(#ar)"/>
 
   <text x="30" y="396" font-size="10" fill="var(--text-muted)">poll &#8212; zero inbound network surface; works behind NAT and venue wifi</text>
-  <text x="30" y="412" font-size="10" fill="var(--text-muted)">push &#8212; near-instant, but needs a public URL</text>
+  <text x="30" y="412" font-size="10" fill="var(--text-muted)">push &#8212; DEPRECATED (#377), removed in v0.7: near-instant, but needs a public URL and an inbound /score route</text>
   <text x="30" y="428" font-size="10" fill="var(--text-muted)">either way the score enters through one audited writer: scorer's bearer-authed POST /score, written monotonically</text>
 </svg>

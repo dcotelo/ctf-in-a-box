@@ -101,6 +101,37 @@ services:
     depends_on: [srh]
     networks: [frontend]
 
+  # The push score-ingest mode is DEPRECATED (issue #377): it is kept working
+  # for this release and REMOVED in v0.7, after which poll is the only score
+  # transport for secure-development. `--profile push` must therefore say so
+  # at bring-up, and this one-shot service is how it does: it carries the
+  # `push` profile ALONE, so it exists only in a push line-up and a poll one
+  # shows nothing extra at all.
+  #
+  # It reuses ${SCORE_IMAGE} — the image a push event has already pulled for
+  # the scorer beside it — rather than naming an image of its own: a second
+  # digest-pinned reference here would be a second pin for Dependabot to keep
+  # honest (ADR 51) and a pull a poll event would never need. It prints and
+  # exits (`restart: "no"`, so nothing brings it back); the line lands in the
+  # `up` output of a foreground bring-up and in `docker compose logs
+  # push-deprecated` after `up -d`, where the service NAME is itself visible.
+  push-deprecated:
+    profiles: ["push"]
+    image: ${SCORE_IMAGE:-ghcr.io/owasp-ctf/score:latest}
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - >-
+        echo "DEPRECATED: SCORE_INGEST=push and --profile push are deprecated
+        (issue #377) and are REMOVED in v0.7. Poll is the score transport for
+        secure-development: set SCORE_INGEST=poll in .env and bring the stack
+        up with --profile secdev --profile app."
+    # Named like every other service (a service with no `networks:` key joins
+    # a third, isolated `default` network — see AGENTS.md), even though this
+    # one only ever writes to stdout.
+    networks: [frontend]
+
   srh:
     # Pinned by digest: this third-party image sits in the score read/write path,
     # so a mutable :latest tag must not silently swap it out on a repull.

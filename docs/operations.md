@@ -41,8 +41,10 @@ live-GitHub scoring. For standing the kit up in the first place, see
 
 This archives each target repo in the event org. It does **not** revoke
 credentials or delete secrets — do that yourself: uninstall the GitHub App,
-and delete the event org's Actions secrets (`LEADERBOARD_TOKEN` if you used
-push mode).
+and delete the event org's Actions secrets (`LEADERBOARD_URL` /
+`LEADERBOARD_TOKEN` if you used push mode, which is deprecated — see
+[#377](https://github.com/dcotelo/owasp-ctf/issues/377); `ctf-setup.sh doctor`
+reports whether they are still set).
 
 ## Teams
 
@@ -300,9 +302,9 @@ The panel offers:
 - **Freeze** — a pause switch. Pausing **freezes ingestion, not fork
   Actions**: contestants' PRs keep getting judged and commented on exactly
   as before, poll mode's cursor just holds in place (nothing is lost, only
-  deferred), and push mode's `POST /score` returns `503` so a contestant's
-  Action retries instead of silently dropping the submission. Un-pausing
-  picks up right where it left off.
+  deferred), and deprecated push mode's `POST /score` returns `503` so a
+  contestant's Action retries instead of silently dropping the submission.
+  Un-pausing picks up right where it left off.
 - **Modules** (Event tab) — which modules this event serves, switchable
   **during the event without a rebuild**. Switching one off removes its nav
   link and stops its board resolving on everyone's next page load; switching it
@@ -1668,7 +1670,11 @@ The scorer engine has two more gates of its own:
 ```
 
 `acceptance-scorer.sh` closes the judge → PR-comment marker → leaderboard loop
-against a fake target app, in both push and poll mode.
+against a fake target app, in both push and poll mode. (It exercises the
+judge's `SCORE_API` hook against a fake leaderboard — the scorer's half. The
+push *transport* — a public `/score` through caddy — is what nothing proves,
+and is deprecated for that reason among others:
+[#377](https://github.com/dcotelo/owasp-ctf/issues/377).)
 `acceptance-target.sh` is the **stock-scores-zero gate**: it boots the real,
 unpatched upstream image and asserts every challenge fails against it. Any
 challenge that passes there asserts the exploit rather than the fix, and the
@@ -1793,13 +1799,15 @@ on from other OWASP-CTF repos landed here instead:
 1. **Scorer bearer auth** — the in-repo engine's `POST /score` requires
    `Authorization: Bearer <token>` (`scorer/src/serve.js`), checked
    constant-time, and the scorer refuses to boot without a token — so both
-   `sync` and push mode authenticate without an OIDC provider.
+   `sync` and push mode (deprecated, #377) authenticate without an OIDC
+   provider.
 2. **The scoring workflow** — the kit's own
    `scorer/consumer-workflow.example.yml` replaces the upstream
    `score-action`: it always posts the machine-readable result comment
    (pass/fail and points only, no exploit detail), reads the judge's report
    only from `CTF_OUT_DIR` and only when the scorer step succeeded, and takes
-   the push-mode leaderboard URL and token as org secrets.
+   the push-mode leaderboard URL and token as org secrets — the optional hook
+   that goes with push in v0.7 (#377).
 
 What none of that bounds: **no real event has yet driven real contestant PRs
 through real GitHub end to end**, and nothing here has been exercised at the

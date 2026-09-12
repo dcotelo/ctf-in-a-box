@@ -1,6 +1,6 @@
 <svg viewBox="0 0 880 512" xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-labelledby="ttl desc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
   <title id="ttl">System overview</title>
-  <desc id="desc">One docker-compose box at runtime. The contestant browser reaches caddy over HTTPS; caddy proxies to the app; the app reads teams and hints from srh and the leaderboard from scorer; scorer is the one writer for secure-development score state, landing it in redis via srh; secure-development scores arrive either by a push-mode scoring Action posting to /score, or by poll-mode sync polling GitHub and posting to scorer directly. Quiz, classic and ai score entirely app-side and never touch scorer.</desc>
+  <desc id="desc">One docker-compose box at runtime. The contestant browser reaches caddy over HTTPS; caddy proxies to the app; the app reads teams and hints from srh and the leaderboard from scorer; scorer is the one writer for secure-development score state, landing it in redis via srh; secure-development scores arrive by poll-mode sync polling GitHub and posting to scorer directly, or through the faded push tile marked deprecated, where a scoring Action posts to /score (removed in v0.7 per issue 377). Quiz, classic and ai score entirely app-side and never touch scorer.</desc>
   <style>
     :root {
       --bg: #ffffff; --surface: #f6f8fa; --surface-2: #eaeef2; --border: #d0d7de;
@@ -90,8 +90,12 @@
 
   <text x="596" y="412" font-size="10" fill="var(--text-muted)" letter-spacing="1">SCORING INGEST</text>
   <rect x="596" y="418" width="234" height="82" rx="8" fill="none" stroke="var(--border)" stroke-dasharray="4 4"/>
-  <rect class="dgm-gate" x="610" y="432" width="206" height="28" rx="6" fill="var(--surface)" stroke="var(--border)"/>
-  <text x="713" y="451" text-anchor="middle" font-size="10" fill="var(--text)">push: Action &#8594; /score</text>
+  <!-- Push ingest is DEPRECATED (issue #377) and removed in v0.7: the tile is
+       faded and says so, so the picture agrees with the docs. -->
+  <g opacity="0.5">
+    <rect class="dgm-gate" x="610" y="432" width="206" height="28" rx="6" fill="var(--surface)" stroke="var(--border)"/>
+    <text x="713" y="451" text-anchor="middle" font-size="10" fill="var(--text)">push: Action &#8594; /score &#183; DEPRECATED</text>
+  </g>
   <rect class="dgm-gate dgm-g2" x="610" y="466" width="206" height="28" rx="6" fill="var(--surface)" stroke="var(--border)"/>
   <text x="713" y="485" text-anchor="middle" font-size="10" fill="var(--text)">poll: sync &#8594; /score</text>
 

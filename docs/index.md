@@ -53,8 +53,8 @@ scoring code to write.
 | **Organizer admin panel** | `/admin`, allowlisted: freeze the leaderboard, schedule scoring and registration windows, toggle hints, set the team cap and score cooldown, grant admin to others, author each module's content, reset between rehearsals. |
 | **Live-event support** | Act on one contestant or one team without wiping the event: reset progress, delete a contestant, take over a captainless team. Every action audited with actor and target. |
 | **Engagement metrics** | Participation funnel, solves over time, per-challenge difficulty and hint usage — folded out of data the box already stores, with no telemetry from contestants' forks. |
-| **Scoring pipeline** | GitHub-Actions-fed, poll or push, one audited score writer — the transport for modules graded outside the app. Quiz, Classic and AI bank points directly and never touch it. |
-| **Poll or push** | Poll mode has zero inbound network surface; push mode is near-instant with a public URL. |
+| **Scoring pipeline** | GitHub-Actions-fed poll transport, one audited score writer — for modules graded outside the app. Quiz, Classic and AI bank points directly and never touch it. |
+| **Zero inbound surface** | Poll mode needs nothing to reach your box from the internet. (Push mode — near-instant, public URL — is deprecated and removed in v0.7: [#377](https://github.com/dcotelo/owasp-ctf/issues/377).) |
 | **One box, no cloud** | Docker Compose plus one free GitHub org. Nothing billed, nothing phones home. |
 
 **The Secure Development module** (graded through GitHub):
@@ -140,8 +140,9 @@ and bringing the box up — lives in
 
 Poll mode is the default and needs no inbound network access — nothing has to
 reach your box from the internet, so a campus network, a locked-down lab or
-venue wifi works without a firewall change. Full prerequisites, OAuth setup and
-the poll-vs-push choice are in [Hosting](hosting.md).
+venue wifi works without a firewall change. It is also the only transport
+going forward — push ingest is deprecated (#377). Full prerequisites, OAuth
+setup and the transport itself are in [Hosting](hosting.md).
 
 ## Teams
 
@@ -199,16 +200,16 @@ Pick the doc for what you're doing right now:
 
 **Standing the kit up**
 
-- [Hosting](hosting.md) — the guided wizard, prerequisites, poll vs push, the
-  GitHub OAuth app, and event config.
+- [Hosting](hosting.md) — the guided wizard, prerequisites, the score
+  transport (poll; push deprecated), the GitHub OAuth app, and event config.
 - [Deploy on AWS](aws.md) — single-shot Terraform deploy onto ECS Fargate with
   ElastiCache behind an ALB (`apply` up, `destroy` down).
 - [Deploy on fly.io](fly.md) — the whole stack as one Fly machine, running the
   repo's own `docker-compose.yml`, no box to administer (`deploy.sh` up,
   `fly apps destroy` down).
 - [Security checklist](security-checklist.md) — the one-page pre-event walk:
-  HTTPS, secrets, the private scorer image and its per-fork grant, poll vs
-  push, and the admins list.
+  HTTPS, secrets, the private scorer image and its per-fork grant, why poll
+  and not the deprecated push, and the admins list.
 
 **Running an event**
 
@@ -233,7 +234,7 @@ Pick the doc for what you're doing right now:
 - [Reviewing](reviewing.md) — the review guideline: the invariants a PR
   review here must verify, and the deliberate decisions not to re-flag.
 - [Glossary](glossary.md) — the terms an outsider trips on (target, module,
-  rubric, marker, poll vs push, …) and the project's six names.
+  rubric, marker, the poll transport, …) and the project's six names.
 
 ## Status
 
