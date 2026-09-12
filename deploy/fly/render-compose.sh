@@ -189,7 +189,11 @@ dotenv_value() {
 }
 
 env_value() {
-  dotenv_value "$(sed -n "s/^$1=//p" "$ENV_FILE" | tail -1)"
+  # `KEY = value` is legal too: compose's parser trims whitespace around the
+  # key and after the `=`, and hands back `value`. Matching only `KEY=` made
+  # such a line invisible here — deploy.sh called the key empty and refused,
+  # render-compose.sh dropped secdev — while compose read it fine.
+  dotenv_value "$(sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$ENV_FILE" | tail -1)"
 }
 
 if [ -z "$PROFILES" ]; then

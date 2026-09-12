@@ -503,6 +503,22 @@ ENV
   [ -n "$(grep -E '^  (scorer|sync):' "$out")" ]
 }
 
+@test "render: a spaced SCORE_IMAGE assignment still enables secdev" {
+  need_docker
+  # `SCORE_IMAGE = ghcr.io/...` is legal .env: compose trims whitespace around
+  # the key and after the `=`, and reads the value fine. A reader matching only
+  # `^SCORE_IMAGE=` saw nothing there and rendered an app-only stack for an
+  # event that has a scorer — the renderer and compose disagreeing about one
+  # file again, this time in the other direction.
+  sed 's|^SCORE_IMAGE=.*|SCORE_IMAGE = ghcr.io/fixture-org/score:latest|' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.spaced"
+  out="$BATS_TEST_TMPDIR/spaced.yml"
+  "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env.spaced" --out "$out" \
+    --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t
+  [ -s "$out" ]
+  [ -n "$(grep -E '^  (scorer|sync):' "$out")" ]
+}
+
 @test "render: no build, networks, volumes or profiles keys survive" {
   need_docker
   render
@@ -578,6 +594,10 @@ ENV
   # trim, drop anything not shaped like a GitHub login. Each of these is
   # non-empty and parses to NOBODY, so it would deploy an event whose /admin
   # 403s everyone — the operator included, with another deploy the only fix.
+  #
+  # Two groups, because "did the message leak the value?" is only a question
+  # you can ask of a distinctive value: a bare "," appears in any English
+  # sentence, so grepping the output for it proves nothing either way.
   for bad in "," " , " "bad login!" "alice@example.com" "-alice" "a--b"; do
     sed "s|^ADMIN_LOGINS=.*|ADMIN_LOGINS=$bad|" "$BATS_TEST_TMPDIR/env" \
       > "$BATS_TEST_TMPDIR/env.admins"
@@ -591,9 +611,27 @@ ENV
       return 1
     fi
   done
-  # Decisive, and last: the refusal must not echo the offending value, since a
-  # typo'd roster can hold an email address or a pasted secret. The final loop
-  # iteration above left the "a--b" refusal in $output.
+
+  # The redaction half, checked INSIDE the loop: $output is overwritten by the
+  # next `run`, so a leak in an early iteration is gone by the time the test
+  # ends. A typo'd roster can hold an email address or a pasted secret, so the
+  # refusal names the shape and the count and never the value.
+  for bad in "bad login!" "alice@example.com" "-alice" "a--b"; do
+    sed "s|^ADMIN_LOGINS=.*|ADMIN_LOGINS=$bad|" "$BATS_TEST_TMPDIR/env" \
+      > "$BATS_TEST_TMPDIR/env.admins"
+    run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.admins"
+    if [ "$status" -eq 0 ]; then
+      echo "ACCEPTED an unusable ADMIN_LOGINS: [$bad]"
+      return 1
+    fi
+    if echo "$output" | grep -qF -- "$bad"; then
+      echo "refusal leaked the ADMIN_LOGINS value: [$bad]"
+      return 1
+    fi
+  done
+
+  # Decisive and last, per AGENTS.md: a bracket test that gates on the final
+  # iteration's output rather than ending the test on a bare loop.
   [ -z "$(echo "$output" | grep -F -- 'a--b')" ]
 }
 
@@ -614,6 +652,23 @@ ENV
     fi
   done
   [ "$status" -eq 0 ]
+}
+
+@test "deploy reads a spaced .env assignment, the way compose does" {
+  need_docker
+  cd "$REPO"
+  # The deploy.sh half of the same rule. Every required key goes through
+  # env_value, so a spaced assignment used to read as empty and `require`
+  # refused a file compose would have deployed happily.
+  sed -e 's|^SCORE_IMAGE=|SCORE_IMAGE = |' \
+      -e 's|^ADMIN_LOGINS=|ADMIN_LOGINS = |' \
+      -e 's|^GITHUB_ORG=|  GITHUB_ORG=|' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.spaced"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.spaced"
+  [ "$status" -eq 0 ]
+  # Not merely "it did not refuse": the VALUE has to arrive intact, with the
+  # padding stripped rather than carried into the image reference.
+  echo "$output" | grep -qF 'ghcr.io/fixture-org/score:latest'
 }
 
 @test "the /health revision survives dirt outside apps/web" {
