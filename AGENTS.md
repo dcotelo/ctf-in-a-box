@@ -355,7 +355,12 @@ suggestions.
 - `setup/` — `ctf-setup.sh` and event provisioning. Bash, `bats`.
 - `caddy/` — `Caddyfile.poll` / `Caddyfile.push`, mounted by `SCORE_INGEST`.
   Push adds `handle /score` to `scorer:4000` for the fork's Action; the rest
-  proxies to `app:3000`. Same headers in both — change them together.
+  proxies to `app:3000`. Same headers in both — change them together. **Push
+  ingest is DEPRECATED (#377, ADR 56) and removed in v0.7**, together with
+  `Caddyfile.push`, the `push` compose profile (and its `push-deprecated`
+  notice service), `SCORE_INGEST` and the judge's `SCORE_API`/`SCORE_TOKEN`
+  hook. Until then it keeps working: nothing here writes `push` any more, and
+  every place that still reads it says what it is.
 - `patches/` — `<target>/<challenge-id>.patch`, one reference fix per
   challenge; the input to `acceptance-patched.sh`. `git`-format diffs against
   the source the script pins by commit; `patches/README.md` is the contract.

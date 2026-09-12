@@ -8,6 +8,25 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **BREAKING: push score ingest is deprecated; poll is the score transport
+  (#377, [ADR 56](docs/decisions.md)).** Nothing is removed yet — a box whose
+  `.env` says `SCORE_INGEST=push` boots this release unchanged, `--profile
+  push` still brings the scorer up without a poller, and the judge's
+  `SCORE_API`/`SCORE_TOKEN` leaderboard POST still works. What changes is
+  that every place that touches it now says what it is: the wizard stops
+  asking "Score ingest" and writes `SCORE_INGEST=poll`, naming an existing
+  `push` as deprecated rather than rewriting the one switch compose reads;
+  `ctf-setup.sh doctor` warns about that value and about leftover
+  `LEADERBOARD_URL`/`LEADERBOARD_TOKEN` org secrets (fail-closed — a `gh`
+  error or an empty reply reports "not verified", never "absent"); `org`'s
+  manual checklist drops its push-secrets step; `--profile push` prints a
+  deprecation notice at bring-up; and the docs, the two score-ingest diagrams
+  and `caddy/Caddyfile.push` are marked. **In v0.7 it goes**:
+  `caddy/Caddyfile.push`, the `push` compose profile, `SCORE_INGEST` itself
+  and the judge's push hook. Move an event with an `.env` edit
+  (`SCORE_INGEST=poll`) and `--profile secdev --profile app`, then delete the
+  two org secrets — they are readable by the runs a contestant's PR triggers.
+
 - **Fixed: a Fly deploy could ship the previous event org's credentials
   without saying so (#381).** `.env.fly` and `.env` were never compared, so a
   re-created org — new OAuth app, new sync App — deployed silently against the

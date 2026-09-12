@@ -6,9 +6,9 @@ title: Hosting
 
 # Hosting
 
-Everything you need to stand the kit up: prerequisites, the poll-vs-push
-choice, the GitHub OAuth app contestants sign in with, and how event config
-reaches the app. For the happy-path command sequence see the
+Everything you need to stand the kit up: prerequisites, the score transport
+(poll — push is deprecated, see [Poll vs push](#poll-vs-push)), the GitHub
+OAuth app contestants sign in with, and how event config reaches the app. For the happy-path command sequence see the
 [README Quickstart](https://github.com/dcotelo/owasp-ctf#quickstart); for
 running the event once it is up see [docs/operations.md](operations.md).
 
@@ -69,11 +69,15 @@ keys into `.env`, in this order:
   Development at all. Saying yes with no org is refused, since there would be
   nothing to fork into.
 
-Say yes and it also asks **`SCORE_INGEST` (poll | push)**, re-asking until the
-answer is exactly one of the two — it becomes a Caddyfile path in compose, so
-a typo is a failed bring-up rather than a wrong label. `EVENT_URL` is asked
-once: at step 2 when the wizard creates `.env`, or at step 3 when an existing
-file has no value for it.
+The wizard does **not** ask how scores reach the box any more: poll is the
+transport, so it writes `SCORE_INGEST=poll`
+([#377](https://github.com/dcotelo/owasp-ctf/issues/377) — push is deprecated
+and removed in v0.7). A file that already says `push` is left exactly as it
+is and named as deprecated rather than rewritten, since that key is what
+compose reads to pick a profile; a value that is neither mode is named as the
+failed bring-up it would be (compose mounts `caddy/Caddyfile.<value>`) and
+replaced with `poll`. `EVENT_URL` is asked once: at step 2 when the wizard
+creates `.env`, or at step 3 when an existing file has no value for it.
 
 **Secure Development decides which later steps run.** With `SCORE_IMAGE` set,
 steps 4–7 do the scorer image, the `sync` GitHub App, and the org: forks,
@@ -168,8 +172,9 @@ docker buildx build --platform linux/amd64 -t ghcr.io/<your-org>/score:latest --
 #      (a) detach each fork from its fork network (Settings → Leave fork
 #          network);
 #      (b) keep ghcr.io/<org>/score PRIVATE and grant each fork Read under the
-#          package's Manage Actions access;
-#      (c) push mode only: org Actions secrets LEADERBOARD_URL / LEADERBOARD_TOKEN.
+#          package's Manage Actions access.
+#    (There is no push-mode secrets step any more: push ingest is deprecated,
+#     #377 — doctor reports LEADERBOARD_URL/LEADERBOARD_TOKEN as leftovers.)
 #    Then verify provisioning:
 ./setup/ctf-setup.sh doctor
 ```
@@ -376,7 +381,7 @@ fix it by hand, add one line to `.env` and bring the stack back up:
 echo "REDIS_PASSWORD=$(openssl rand -hex 24)" >> .env
 docker compose --profile app up -d                    # SCORE_IMAGE empty
 docker compose --profile secdev --profile app up -d   # set, SCORE_INGEST=poll
-docker compose --profile push --profile app up -d     # set, SCORE_INGEST=push
+docker compose --profile push --profile app up -d     # set, SCORE_INGEST=push (deprecated, #377)
 ```
 
 Pick the line that matches your `.env` — the same three-way choice as the
@@ -454,38 +459,55 @@ score comment; the PR is never merged. Detaching the fork network (manual step
 
 ## Poll vs push
 
+> **Push is deprecated and there is nothing to choose any more.** Poll is
+> *the* score transport for Secure Development
+> ([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
+> [ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)).
+> Push still works in this release — an existing `SCORE_INGEST=push` box
+> boots unchanged — and is **removed in v0.7**, together with
+> `caddy/Caddyfile.push`, the `push` compose profile and `SCORE_INGEST`
+> itself. Leave the key at `poll`; if it says `push`, the wizard, `doctor`
+> and the push bring-up all say so, and moving is an `.env` edit plus
+> `--profile secdev --profile app`.
+
 Scores travel from the scoring Action back to your box one of two ways.
 **`SCORE_INGEST` in `.env` is the switch, and since #386 it is the only copy
-of it** — it is what `docker-compose.yml` and the Caddy profile read, what
-the wizard's "Score ingest" answer writes, and what the wizard's bring-up
-step reads to choose the compose profile. There is no second declaration
+of it** — it is what `docker-compose.yml` and the Caddy profile read, and what
+the wizard's bring-up step reads to choose the compose profile. The wizard
+no longer *asks*: it writes `poll` (#377). There is no second declaration
 anywhere to drift out of step with it (there used to be one in the deleted
 event config file, and it did: #372).
 
 | Mode | How it works | Requirements | Latency |
 |---|---|---|---|
-| `poll` (default) | The `sync` service polls the org's target repos for score comments | a GitHub App installed on the event org (see below) — otherwise nothing extra; works behind NAT, on a laptop, anywhere | ~30 s |
-| `push` | The scoring Action POSTs the score directly to your box | A public URL; `SCORE_INGEST=push` and org Actions secrets `LEADERBOARD_URL` / `LEADERBOARD_TOKEN` | Near-instant |
+| `poll` (default, and the transport going forward) | The `sync` service polls the org's target repos for score comments | a GitHub App installed on the event org (see below) — otherwise nothing extra; works behind NAT, on a laptop, anywhere | ~30 s |
+| `push` — **DEPRECATED (#377), removed in v0.7** | The scoring Action POSTs the score directly to your box | A public URL; `SCORE_INGEST=push` and org Actions secrets `LEADERBOARD_URL` / `LEADERBOARD_TOKEN` | Near-instant |
 
-Poll mode is what `scripts/smoke.sh` proves working today. Push mode's
-requirements ship in-kit — the scoring workflow reads the
+Poll mode is what `scripts/smoke.sh` proves working today — and push mode is
+what nothing proves, which is half of why it is going: no CI job, acceptance
+script or bats case has ever run `SCORE_INGEST=push`, and the Fly module
+refuses it outright because a Fly machine has no route for `/score` (#373).
+Its requirements do ship in-kit — the scoring workflow reads the
 `LEADERBOARD_URL`/`LEADERBOARD_TOKEN` org secrets and the scorer's
 `POST /score` takes bearer auth (see
 [Status and upstream dependencies](operations.md#status-and-upstream-dependencies))
 — and Caddy only exposes the `/score` route externally when running with the
-`push` Caddyfile.
+`push` Caddyfile. Those two org secrets are standing credentials readable by
+runs a contestant's PR triggers, so delete them once you are off push;
+`ctf-setup.sh doctor` tells you whether they are still set.
 
 Start the poll pipeline with `docker compose --profile secdev --profile app up
 -d` — the `secdev` profile brings up `sync` and the `scorer`, and `app` brings
 up the contestant-facing app. Push mode does not need `sync` running, so it
 uses `--profile push --profile app` instead (the `push` profile carries the
-scorer without the poller).
+scorer without the poller, and prints its deprecation notice at start-up).
 
 ### Which profiles do I need?
 
 Compose profiles follow **`SCORE_IMAGE`**, not your taste: `app` is always
-on, and Secure Development's own profile — `secdev`, or `push` if that is the
-`SCORE_INGEST` you set — carries everything `secure-development` needs. The
+on, and Secure Development's own profile — `secdev`, or the deprecated `push`
+(#377) if that is the `SCORE_INGEST` you already set — carries everything
+`secure-development` needs. The
 `scorer` is part of that module (it exists to score PRs against forked
 targets), so it carries both — `["secdev", "push"]` — while `sync` carries
 `["secdev"]` alone, since push mode has the fork's Action POST to the scorer
@@ -497,7 +519,8 @@ one setting picking both.** You choose the profile at `up`: `--profile app`
 alone for a quiz/classic/ai-only event; with Secure Development,
 `--profile secdev --profile app` when `SCORE_INGEST` is `poll` (or unset) and
 `--profile push --profile app` when it is `push` — the `push` profile is what
-mounts the Caddyfile with the `/score` route. Either Secure Development
+mounts the Caddyfile with the `/score` route, and it is deprecated (#377): it
+prints a notice at bring-up and disappears in v0.7. Either Secure Development
 profile needs an *accessible* `SCORE_IMAGE` — the compose fallback image is
 private, so bringing one up without your own `SCORE_IMAGE` set fails the
 pull. Separately, the app's
@@ -516,7 +539,7 @@ start. Pick the command by what that file says:
 | Your event | Command |
 |---|---|
 | Secure Development in poll mode (`SCORE_IMAGE` set, `SCORE_INGEST=poll`) | `docker compose --profile secdev --profile app up -d --build` |
-| Secure Development in push mode (`SCORE_IMAGE` set, `SCORE_INGEST=push`) | `SCORE_INGEST=push docker compose --profile push --profile app up -d --build` |
+| Secure Development in push mode (`SCORE_IMAGE` set, `SCORE_INGEST=push`) — **deprecated (#377), removed in v0.7** | `SCORE_INGEST=push docker compose --profile push --profile app up -d --build` |
 | No Secure Development (`SCORE_IMAGE` empty) — quiz and/or classic and/or ai | `docker compose --profile app up -d --build` |
 
 Quiz, Classic and AI need no profile of their own: they are app-side modules,
@@ -797,7 +820,7 @@ the same list, annotated), and `doctor` flags a missing `REDIS_PASSWORD`.
 |---|---|---|---|
 | `REDIS_PASSWORD` | `redis`, `srh` | **required** (`:?`) | Redis `requirepass`. Unset *or empty* fails `up` at interpolation rather than starting an open Redis; only `srh` can reach `redis:6379`. |
 | `SRH_TOKEN` | `srh`; `app`/`scorer`/`sync` as `UPSTASH_REDIS_REST_TOKEN` | required | Bearer token in front of the Redis REST proxy every service talks to. |
-| `SCORE_INGEST` | compose (Caddyfile choice) | `poll` | `poll` or `push`: mounts `caddy/Caddyfile.<mode>`. Must match the `--profile` you pass. |
+| `SCORE_INGEST` | compose (Caddyfile choice) | `poll` | `poll` or `push`: mounts `caddy/Caddyfile.<mode>`. Must match the `--profile` you pass. **`push` is deprecated (#377) and this key goes with it in v0.7** — leave it at `poll`. |
 | `SCORE_IMAGE` | `scorer` image; `scripts/dev-stack` and `deploy/fly/render-compose.sh` as the `secdev` switch | `ghcr.io/owasp-ctf/score:latest` (private) | Your scorer image built from `scorer/`. Non-empty is what makes Secure Development *available*: it adds the `secdev` profile, seeds the first-boot default module set, and permits the `/admin` toggle (`enabledModules` still decides what is live). Empty and `ctf-setup org` skips every fork/mirror/poll step instead of failing; non-empty and it provisions all six targets. |
 | `EVENT_URL` | `caddy` as `EVENT_HOST`; `app` as `BETTER_AUTH_URL` | `http://localhost` | **The** event URL — TLS host, auth callback origin, HTTPS start-up guard, CSRF origin check. `https://` for any real event. |
 | `REDIS_DIR` | `redis` | `/data` | Where the append-only file lives inside the volume. Fly sets `/data/redis` (one volume per machine, see [docs/fly.md](fly.md)). |
@@ -849,7 +872,7 @@ secrets/variables, or `scripts/acceptance-scorer.sh`, never from `.env`:
 | Variable | Read by | Default | Meaning |
 |---|---|---|---|
 | `CTF_OUT_DIR` | `judge.js`, `entrypoint.sh` | `GITHUB_WORKSPACE` | Where `ctf-score.md` is written. The workflow sets `/ctf-out`, **outside the PR checkout** — the marker in it is trust-authoritative. |
-| `SCORE_API`, `SCORE_TOKEN` | `judge.js` | unset (poll mode) | Push mode: `POST <SCORE_API>/score` with the bearer. Fed from the org secrets `LEADERBOARD_URL` / `LEADERBOARD_TOKEN`; `SCORE_TOKEN` is required whenever `SCORE_API` is set. |
+| `SCORE_API`, `SCORE_TOKEN` | `judge.js` | unset (poll mode) | Push mode — **deprecated (#377), removed with the hook in v0.7**: `POST <SCORE_API>/score` with the bearer. Fed from the org secrets `LEADERBOARD_URL` / `LEADERBOARD_TOKEN`; `SCORE_TOKEN` is required whenever `SCORE_API` is set. |
 | `CTF_DISCLOSE_TABLE` | `judge.js` | disclose | `0` / `false` / `no` hides the per-challenge table in the PR comment (progress bar and counts always show). An org Actions *variable*. |
 | `APP_READY_TRIES`, `APP_READY_DELAY` | `judge.js` | `60`, `5` (seconds) | Readiness probe before judging. A literal `0` skips it — only a bring-up script that already proved the app up should set that (`securityshepherd.sh` does). |
 | `CTF_SCORE_SAFETY_MS` | `exec.js` | `30000` | Per-probe kill timeout, ms; values below 1 fall back to the default. |

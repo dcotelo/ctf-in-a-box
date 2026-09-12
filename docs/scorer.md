@@ -407,16 +407,21 @@ The renderer fills `<APP_URL>` with each target's **stock** port
 verify the URL against your rubric's boot strategy (see
 [Booting hard targets](#booting-hard-targets)) before committing the file.
 
-Poll vs push is decided by two optional org Actions secrets:
+Poll vs push is decided by two optional org Actions secrets — and push is
+**deprecated** ([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
+[ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)):
+it works this release, and in v0.7 the judge's `SCORE_API`/`SCORE_TOKEN` hook
+goes with the rest of the mode. Leave both secrets unset.
 
-- **Poll** (default): leave `LEADERBOARD_URL` / `LEADERBOARD_TOKEN` unset.
-  The judge skips the leaderboard POST; the PR comment's marker is the
-  transport and the kit's `sync` service picks it up. Zero inbound network
-  surface on your box.
-- **Push**: set `LEADERBOARD_URL` (your box's public URL) and
-  `LEADERBOARD_TOKEN` (the `SCORER_TOKEN` from `.env`) as org secrets, and
-  run the box with `SCORE_INGEST=push` so Caddy exposes the `/score`
-  route.
+- **Poll** (default, and the transport going forward): leave
+  `LEADERBOARD_URL` / `LEADERBOARD_TOKEN` unset. The judge skips the
+  leaderboard POST; the PR comment's marker is the transport and the kit's
+  `sync` service picks it up. Zero inbound network surface on your box.
+- **Push** (*deprecated, removed in v0.7*): set `LEADERBOARD_URL` (your box's
+  public URL) and `LEADERBOARD_TOKEN` (the `SCORER_TOKEN` from `.env`) as org
+  secrets, and run the box with `SCORE_INGEST=push` so Caddy exposes the
+  `/score` route. Both are org secrets, readable by the runs a contestant's
+  PR triggers — delete them once you are off push.
 
 The workflow posts its comment via `actions/github-script` with the
 default `GITHUB_TOKEN`, which makes the comment author

@@ -55,7 +55,7 @@ Everything runs as one `docker-compose.yml` stack (see
 Two independent things happen in parallel: contestants browsing the app, and
 scores flowing in from GitHub.
 
-<img src="assets/diagrams/system-overview.svg" alt="Animated diagram. One docker-compose box at runtime. The contestant browser reaches caddy over HTTPS; caddy proxies to the app; the app reads teams and hints from srh and the leaderboard from scorer; scorer is the one writer for secure-development score state, landing it in redis via srh; secure-development scores arrive either by a push-mode scoring Action posting to /score, or by poll-mode sync polling GitHub and posting to scorer directly. Quiz, classic and ai score entirely app-side and never touch scorer.">
+<img src="assets/diagrams/system-overview.svg" alt="Animated diagram. One docker-compose box at runtime. The contestant browser reaches caddy over HTTPS; caddy proxies to the app; the app reads teams and hints from srh and the leaderboard from scorer; scorer is the one writer for secure-development score state, landing it in redis via srh; secure-development scores arrive by poll-mode sync polling GitHub and posting to scorer directly, or through the faded push tile marked deprecated, where a scoring Action posts to /score (removed in v0.7 per issue 377). Quiz, classic and ai score entirely app-side and never touch scorer.">
 
 The plain-text shape, for anything that can't render the animation above:
 
@@ -66,8 +66,8 @@ The plain-text shape, for anything that can't render the animation above:
                                  v
                           +-------------+
                           |    caddy    |   reverse proxy; Caddyfile chosen
-                          +------+------+   by SCORE_INGEST (poll|push)
-                                 |
+                          +------+------+   by SCORE_INGEST (poll|push —
+                                 |          push DEPRECATED, #377)
                  poll: only "/" |  push: "/" and "/score"
                                  v
                           +-------------+
@@ -88,12 +88,12 @@ The plain-text shape, for anything that can't render the animation above:
                           v               |
                     +-----------+    +----+-------------------+
                     |   redis   |    |                        |
-                    +-----------+  push mode:              poll mode:
-                                  scoring Action        sync polls the event
-                                  POSTs to scorer        org's forked repos'
-                                  via caddy /score        issue comments via
-                                  (public URL needed)     a GitHub App token,
-                                                           then POSTs to scorer
+                    +-----------+  push mode               poll mode:
+                                   (DEPRECATED, #377):  sync polls the event
+                                  scoring Action         org's forked repos'
+                                  POSTs to scorer        issue comments via
+                                  via caddy /score        a GitHub App token,
+                                  (public URL needed)     then POSTs to scorer
                                                            directly (no public
                                                            URL needed)
 ```
@@ -109,7 +109,7 @@ state; everything else that touches scores goes through it.
 
 | Service | Source | Responsibility |
 |---|---|---|
-| `caddy` | `caddy:2-alpine` image (digest-pinned, [ADR 51](decisions.md#adr-51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)); `caddy/Caddyfile.poll` or `caddy/Caddyfile.push` selected by `SCORE_INGEST` | Reverse proxy in front of `app`. Push mode adds a `/score` route to `scorer`; poll mode has no `/score` route at all — zero inbound scoring surface. |
+| `caddy` | `caddy:2-alpine` image (digest-pinned, [ADR 51](decisions.md#adr-51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)); `caddy/Caddyfile.poll` or `caddy/Caddyfile.push` selected by `SCORE_INGEST` | Reverse proxy in front of `app`. Push mode adds a `/score` route to `scorer`; poll mode has no `/score` route at all — zero inbound scoring surface. Push is **deprecated** ([#377](https://github.com/dcotelo/owasp-ctf/issues/377), [ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)): `Caddyfile.push` and the `push` profile are removed in v0.7, leaving one Caddyfile and no inbound scoring surface anywhere. |
 | `app` | `apps/web/` (vendored Next.js app, built from local source via `apps/web/Dockerfile`) | Contestant-facing UI: GitHub sign-in, challenge browser, leaderboard, rules/FAQ/how-to-play pages. It reads nothing at build time: `ADMIN_LOGINS` and `GITHUB_ORG` come from the environment at container start, and the event's dates, name and other identity fields, which modules run and which Secure Development targets run are all runtime `/admin` settings (see below). |
 | `scorer` | `${SCORE_IMAGE:-…}` — your own build from the in-repo engine `scorer/`, which bakes the public vendored rubric by default (see [docs/scorer.md](scorer.md)); `setup/ctf-setup.sh org` mirrors whatever `SCORE_IMAGE` names into the event org. The compose fallback `ghcr.io/owasp-ctf/score:latest` is a private upstream image the kit does not assume access to. | Judges submitted PRs against the baked rubric; exposes `POST /score` (bearer-token authed write) and `GET /leaderboard`. The one score writer in the system. Part of the `secure-development` module, so it carries `profiles: ["secdev", "push"]` — both ingest modes need it, unlike `sync`, which is `["secdev"]` only. `SCORE_IMAGE` decides *availability*: non-empty is what adds a Secure Development profile at `up` (so this container exists at all) and what seeds the default module set, and with it empty the scorer cannot run. What is *live* is `enabledModules` in `ctf:admin:settings`, set from `/admin` — so an available Secure Development module can still be switched off, and a running scorer is not by itself an enabled module. See [ADR 26](decisions.md#adr-26-compose-profiles-follow-the-enabled-modules), superseded by [ADR 55](decisions.md#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml). |
 | `srh` | `hiett/serverless-redis-http` | Upstash-REST-compatible HTTP proxy in front of `redis`, so the app's `@upstash/redis` client works unchanged against local Redis. Implements only the POST-command-array subset of Upstash's REST API (no path-style `GET /get/<key>` shortcut — see `scripts/smoke.sh`). |
@@ -118,7 +118,7 @@ state; everything else that touches scores goes through it.
 
 ## Data flow for a score
 
-<img src="assets/diagrams/score-data-flow.svg" alt="Animated diagram. A contestant opens a PR; a pull_request_target Action judges the patch in the base repo; it either POSTs the score directly to /score (push mode) or posts a PR comment carrying the score marker (poll mode); in poll mode, sync's tick filters comments by author, parses and validates, then POSTs to /score itself; scorer is the one writer, landing the score in redis via srh monotonically; the app then reads GET /leaderboard and composes the overlay pipeline (module-contributions, then team-standings, then hint-penalties folded last) before rendering. The score marker is trust-authoritative and only ever comes from the judge's own output, never from the PR checkout.">
+<img src="assets/diagrams/score-data-flow.svg" alt="Animated diagram. A contestant opens a PR; a pull_request_target Action judges the patch in the base repo; it posts a PR comment carrying the score marker (poll mode, the transport) or, on the faded branch marked deprecated, POSTs the score directly to /score (push mode, removed in v0.7 per issue 377); in poll mode, sync's tick filters comments by author, parses and validates, then POSTs to /score itself; scorer is the one writer, landing the score in redis via srh monotonically; the app then reads GET /leaderboard and composes the overlay pipeline (module-contributions, then team-standings, then hint-penalties folded last) before rendering. The score marker is trust-authoritative and only ever comes from the judge's own output, never from the PR checkout.">
 
 1. A contestant forks a target repo in the event org, patches a
    vulnerability, and opens a PR back to the org's copy.
@@ -130,8 +130,11 @@ state; everything else that touches scores goes through it.
    the patch using the private `scorer` image, while the contestant's PR
    code runs sandboxed with no access to those secrets.
 3. The Action reports the result one of two ways, depending on
-   `SCORE_INGEST`:
-   - **push**: POSTs the score directly to `${scorerUrl}/score` (through
+   `SCORE_INGEST` — poll is the transport, and push is **deprecated**
+   ([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
+   [ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)):
+   it works in this release and is removed in v0.7, hook included:
+   - **push** (deprecated): POSTs the score directly to `${scorerUrl}/score` (through
      `caddy`'s `/score` route) with a bearer token. The scorer compares that
      token in constant time — both sides are SHA-256'd and passed to
      `timingSafeEqual`, so neither the token's bytes nor its length are
@@ -1158,7 +1161,12 @@ build.
 - **Poll mode = zero inbound network surface.** `caddy/Caddyfile.poll` has
   no `/score` route at all; nothing needs to reach the box from the
   internet. `caddy/Caddyfile.push` is the only Caddyfile that exposes
-  `/score` externally, and only when the organizer opts into push mode.
+  `/score` externally, and only when the organizer opts into push mode —
+  which is now deprecated and removed in v0.7
+  ([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
+  [ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)),
+  after which the kit's only machine-to-machine inbound surface is the `ai`
+  module's signed endpoints.
 - **Per-event scorer image mirror.** The stock rubric ships public (ADR 18
   reversed ADR 17's private-by-default posture): the in-repo engine
   `scorer/` bakes the vendored `rubric.owasp/` unless you build with your

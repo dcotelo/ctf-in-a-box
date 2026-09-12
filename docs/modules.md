@@ -90,7 +90,12 @@ the sections below are the enforceable contract behind it.
    `sync` carries `["secdev"]` alone. So `SCORE_INGEST=push` is brought up
    with `--profile push`, which starts the scorer without the poller (in push
    mode the fork's Action POSTs to the scorer directly, and there is nothing
-   to poll); `poll` uses `--profile secdev` and gets both.
+   to poll); `poll` uses `--profile secdev` and gets both. Push ingest is
+   **deprecated** ([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
+   [ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)):
+   it works this release, the profile prints its own deprecation notice at
+   bring-up, and in v0.7 it goes — leaving `scorer` with `["secdev"]` like
+   its sibling.
 
    Disabling MUST NOT delete a module's data. Re-enabling has to restore the
    same board, or the toggle is a destructive action wearing a switch.
@@ -128,11 +133,14 @@ the sections below are the enforceable contract behind it.
    target later removed from the list keep counting; removing a target hides a
    board, it does not rewrite history.
 
-   The ingest transport is the one thing still chosen before the boxes come up,
-   and it is an `.env` key (`SCORE_INGEST`, `poll` or `push`) read by
+   The ingest transport was the one thing still chosen before the boxes come
+   up, and it is an `.env` key (`SCORE_INGEST`, `poll` or `push`) read by
    `docker-compose.yml` and the Caddy profile — one declaration, no second copy
-   to drift (#372/#374). A module MUST NOT add a second knob that has to agree
-   with an existing one.
+   to drift (#372/#374). It stopped being a choice: `push` is deprecated
+   (#377) and the key goes with it in v0.7, leaving poll as the transport and
+   nothing about the transport to configure. A module MUST NOT add a second
+   knob that has to agree with an existing one — and, on this evidence, should
+   think twice before adding a first one.
 
 5. MUST state whether it is **Archivable**: whether its content is wholly
    self-contained in Redis, and therefore carried whole by the whole-event
@@ -196,9 +204,18 @@ the sections below are the enforceable contract behind it.
 
 ## Section 3. Score transport options
 
-1. **Push**: the scoring workflow POSTs directly to `${scorerUrl}/score`
-   with a bearer token. Caddy only exposes the `/score` route externally
-   when running in push mode — compare `caddy/Caddyfile.push` (has a
+> Poll is **the** transport. Push is deprecated
+> ([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
+> [ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)):
+> it still works this release and is removed in v0.7, along with
+> `caddy/Caddyfile.push`, the `push` profile and the judge's
+> `SCORE_API`/`SCORE_TOKEN` hook. A new module reaching the platform from
+> outside should copy the poll shape below, never the push one.
+
+1. **Push** — *deprecated, removed in v0.7*: the scoring workflow POSTs
+   directly to `${scorerUrl}/score` with a bearer token. Caddy only exposes
+   the `/score` route externally when running in push mode — compare
+   `caddy/Caddyfile.push` (has a
    `handle /score { reverse_proxy scorer:4000 }` block) against
    `caddy/Caddyfile.poll` (no `/score` route at all, `/score` has zero
    inbound network surface).

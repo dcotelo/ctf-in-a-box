@@ -705,14 +705,14 @@ git push -u origin fix/<short-description>`,
     // the app cannot see a fork or an App installation and must not pretend
     // to. Steps and their order follow docs/hosting.md's quickstart.
     setup: (ctx) => ({
-      experience: `Contestants fork ${ctx.appList} under the ${ctx.githubOrg} GitHub org, patch a real vulnerability, and open a pull request. A GitHub Action in the fork scores the patch and the score reaches the leaderboard through the poller, or by a push to the scorer.`,
+      experience: `Contestants fork ${ctx.appList} under the ${ctx.githubOrg} GitHub org, patch a real vulnerability, and open a pull request. A GitHub Action in the fork scores the patch and the score reaches the leaderboard through the poller.`,
       steps: [
         {
-          title: "Choose the scoring transport",
+          title: "Keep the scoring transport on poll",
           where: "outside",
           body: [
-            { code: "SCORE_INGEST" },
-            " in .env picks poll or push, read by compose at start — changing it means a restart, not a rebuild. Which targets this event actually runs is chosen on this tab's Targets list, not here: a fresh event runs all six, and provisioning (",
+            { code: "SCORE_INGEST=poll" },
+            " in .env is the transport: the poller reads the score comments, and nothing has to reach this box from the internet. The push mode this key used to choose is deprecated (issue #377) and removed in v0.7. It is read by compose at start — changing it means a restart, not a rebuild. Which targets this event actually runs is chosen on this tab's Targets list, not here: a fresh event runs all six, and provisioning (",
             { code: "ctf-setup.sh org" },
             ") always forks and scores all six regardless of what's later switched off.",
           ],
