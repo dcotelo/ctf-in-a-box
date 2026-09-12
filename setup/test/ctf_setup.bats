@@ -424,7 +424,10 @@ write_gh_secrets_stub() {  # $1 = newline-separated secret names (may be empty)
   cat > stubs/gh <<EOF
 #!/usr/bin/env bash
 case "\$*" in
-  *"orgs/test-event-org/actions/secrets"*"--jq"*)
+  # --paginate is part of the call: the check must see every secret the org
+  # has, not gh's first page of 30 (a truncated list reading as "none left"
+  # is the fail-open this whole check is about).
+  *"--paginate"*"orgs/test-event-org/actions/secrets"*"--jq"*)
     printf '%s\n' "$1"
     ;;
   *"packages/container/score"*) echo private ;;

@@ -499,7 +499,11 @@ cmd_doctor() {
     printf 'DRY-RUN: would check %s for the deprecated push-mode secrets (LEADERBOARD_URL, LEADERBOARD_TOKEN)\n' "$org"
   else
     local sec_rows sec_found="" sec
-    if sec_rows="$(gh api "orgs/$org/actions/secrets" --jq '.secrets[].name' 2>/dev/null)" && [ -n "$sec_rows" ]; then
+    # `--paginate`, because a truncated first page reading as "no leftovers"
+    # would be the fail-OPEN this check exists to avoid: gh returns 30 items
+    # by default, and the answer here has to be about every secret the org
+    # has, not the first page of them.
+    if sec_rows="$(gh api --paginate "orgs/$org/actions/secrets" --jq '.secrets[].name' 2>/dev/null)" && [ -n "$sec_rows" ]; then
       for sec in LEADERBOARD_URL LEADERBOARD_TOKEN; do
         if printf '%s\n' "$sec_rows" | grep -qx "$sec"; then sec_found="$sec_found $sec"; fi
       done
