@@ -54,7 +54,7 @@ scoring code to write.
 | **Live-event support** | Act on one contestant or one team without wiping the event: reset progress, delete a contestant, take over a captainless team. Every action audited with actor and target. |
 | **Engagement metrics** | Participation funnel, solves over time, per-challenge difficulty and hint usage — folded out of data the box already stores, with no telemetry from contestants' forks. |
 | **Scoring pipeline** | GitHub-Actions-fed poll transport, one audited score writer — for modules graded outside the app. Quiz, Classic and AI bank points directly and never touch it. |
-| **Zero inbound surface** | Poll mode needs nothing to reach your box from the internet. (Push mode — near-instant, public URL — is deprecated and removed in v0.7: [#377](https://github.com/dcotelo/owasp-ctf/issues/377).) |
+| **Zero inbound surface** | Scores arrive by outbound polling, so nothing has to reach your box from the internet. |
 | **One box, no cloud** | Docker Compose plus one free GitHub org. Nothing billed, nothing phones home. |
 
 **The Secure Development module** (graded through GitHub):
@@ -138,11 +138,12 @@ bootstrap keys, the sync GitHub App, the sign-in OAuth app, org provisioning,
 and bringing the box up — lives in
 [Hosting → Quickstart: zero to a scored event](hosting.md#quickstart-zero-to-a-scored-event).
 
-Poll mode is the default and needs no inbound network access — nothing has to
-reach your box from the internet, so a campus network, a locked-down lab or
-venue wifi works without a firewall change. It is also the only transport
-going forward — push ingest is deprecated (#377). Full prerequisites, OAuth
-setup and the transport itself are in [Hosting](hosting.md).
+Scores reach the box by outbound polling, and that is the only transport there
+is (push ingest was removed in v0.6, #377). It needs no inbound network
+access — nothing has to reach your box from the internet, so a campus network,
+a locked-down lab or venue wifi works without a firewall change. Full
+prerequisites, OAuth setup and the transport itself are in
+[Hosting](hosting.md).
 
 ## Teams
 
@@ -200,16 +201,16 @@ Pick the doc for what you're doing right now:
 
 **Standing the kit up**
 
-- [Hosting](hosting.md) — the guided wizard, prerequisites, the score
-  transport (poll; push deprecated), the GitHub OAuth app, and event config.
+- [Hosting](hosting.md) — the guided wizard, prerequisites, how scores reach
+  the box, the GitHub OAuth app, and event config.
 - [Deploy on AWS](aws.md) — single-shot Terraform deploy onto ECS Fargate with
   ElastiCache behind an ALB (`apply` up, `destroy` down).
 - [Deploy on fly.io](fly.md) — the whole stack as one Fly machine, running the
   repo's own `docker-compose.yml`, no box to administer (`deploy.sh` up,
   `fly apps destroy` down).
 - [Security checklist](security-checklist.md) — the one-page pre-event walk:
-  HTTPS, secrets, the private scorer image and its per-fork grant, why poll
-  and not the deprecated push, and the admins list.
+  HTTPS, secrets, the private scorer image and its per-fork grant, the org
+  secrets an earlier event may have left behind, and the admins list.
 
 **Running an event**
 

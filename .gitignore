@@ -6,12 +6,16 @@ node_modules/
 # covered it. A glob cannot be outrun by the next one.
 .env*
 !.env.example
-# The app, sync and the wizard no longer read event.yaml (config v2, #386 —
-# their whole config plane is .env plus /admin); the Fly and AWS deploy
-# scripts still take it as their bake input until part 6 removes that. Kept
-# ignored so a leftover copy in a stale checkout cannot be committed by
-# accident.
+# Nothing reads event.yaml any more. Config v2 (#386) made `.env` plus /admin
+# the whole config plane, and its last part removed the final readers — the Fly
+# and AWS deploy scripts' config bake. The patterns stay ignored anyway,
+# because an upgraded checkout still has the files on disk: `event.yaml` and
+# `event.yaml.example` were both deleted from the repo, so without these lines
+# a leftover copy would either be committable by accident or sit in
+# `git status` as untracked forever. The glob also covers the `.old` and
+# `.retired-*` names an organizer renames their own copy to.
 event.yaml
+event.yaml.*
 # Anchored to the repo root on purpose: an unanchored `state/` also swallows
 # source directories (apps/web/src/app/api/ai/state/ was force-added past it).
 /state/

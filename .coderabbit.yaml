@@ -65,11 +65,16 @@ reviews:
     - label: "breaking-change"
       instructions: >
         Apply when the PR removes or renames a `.env` key (`GITHUB_ORG`,
-        `ADMIN_LOGINS`, `SCORE_IMAGE`, `SCORE_INGEST`, or another key
+        `ADMIN_LOGINS`, `SCORE_IMAGE`, `EVENT_URL`, or another key
         `.env.example` lists) or a `ctf:admin:settings` field, a registered
         module id, a ctf:* Redis key name or value shape, the scorer's POST
         /score or GET /leaderboard payloads, GET /api/public/scoring, or a
-        ctf-setup.sh subcommand or flag.
+        ctf-setup.sh subcommand or flag. Apply it equally when a PR
+        RE-INTRODUCES a key a release removed — `SCORE_INGEST`, or the judge's
+        `SCORE_API`/`SCORE_TOKEN` (push ingest, removed in v0.6 by #377, ADR
+        56). Those names are not in `.env.example` any more, so the
+        list-membership test above cannot catch them, and bringing one back is
+        a contract change in the same way taking one away was.
     - label: "infrastructure"
       instructions: >
         Apply when the PR modifies docker-compose*.yml, a Dockerfile, the
@@ -529,16 +534,17 @@ reviews:
         quietly starting unauthenticated.
 
         Profiles — a service's `profiles:` no longer matching the modules that
-        need it. scorer is ["secdev","push"]; sync is ["secdev"] only. The
+        need it. scorer and sync both carry ["secdev"] and nothing else. The
         `secdev` profile is DERIVED, never a second knob: whoever brings the
         stack up adds it iff SCORE_IMAGE is non-empty (scripts/dev-stack,
         deploy/fly/render-compose.sh, ctf-setup.sh's wizard step 8). A
         quiz-only or classic-only event must never be required to pull the
         private scorer image.
 
-        Caddyfile.poll gaining a /score route, or any route giving poll mode
-        inbound scoring surface. Push mode's /score route belongs only in
-        Caddyfile.push.
+        Caddyfile.poll gaining a /score route, or any route giving the box
+        inbound scoring surface. It is the only Caddyfile: push ingest and
+        Caddyfile.push were removed in v0.6 (#377, ADR 56), so a /score route
+        reintroduces a transport this kit deliberately deleted.
 
         Restart policy — sync uses `restart: on-failure`, not
         `unless-stopped`, so its clean exit-0 no-op on a module-less event
@@ -750,11 +756,13 @@ reviews:
           contract without documentation:
 
           Runtime config schema — removing or renaming a `.env` key
-          (`GITHUB_ORG`, `ADMIN_LOGINS`, `SCORE_IMAGE`, `SCORE_INGEST`, or
+          (`GITHUB_ORG`, `ADMIN_LOGINS`, `SCORE_IMAGE`, `EVENT_URL`, or
           another key `.env.example` lists) or a `ctf:admin:settings` field,
-          changing enum membership (module ids, target ids), or making an
-          optional key required. `.env.example`, `ctf-setup.sh`'s wizard, and
-          the docs must change too.
+          changing enum membership (module ids, target ids), making an
+          optional key required, or re-introducing a key a release removed
+          (`SCORE_INGEST` — push ingest, removed in v0.6 by #377).
+          `.env.example`, `ctf-setup.sh`'s wizard, and the docs must change
+          too.
 
           Module contract — anything in docs/modules.md a third-party module
           implements against.
@@ -773,8 +781,11 @@ reviews:
           ctf-setup.sh — removing or renaming a subcommand, flag, or prompt.
 
           Environment variables — removing or renaming GITHUB_ORG,
-          ADMIN_LOGINS, SCORE_INGEST, SCORE_IMAGE, LEADERBOARD_API_URL,
+          ADMIN_LOGINS, EVENT_URL, SCORE_IMAGE, LEADERBOARD_API_URL,
           LEADERBOARD_SOURCE, UPSTASH_REDIS_REST_URL, DEMO_MODE, or similar.
+          Re-introducing SCORE_INGEST, or the judge's SCORE_API/SCORE_TOKEN,
+          counts too: push ingest was removed in v0.6 (#377) and a diff that
+          brings the key back is proposing a second score transport.
 
           Required: a "Breaking changes" section in the PR description saying
           what changed and what an organizer or module author must update, plus

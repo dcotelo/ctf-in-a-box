@@ -503,10 +503,9 @@ export default function AdminEventTab({
           </span>
           <span className="block text-sm text-muted">
             Scores already ingested are gone, but their source is not: a scored PR
-            comment stays on GitHub, and in poll mode the poller reads those
-            comments again — so if this event ingests scores by polling
-            (<code>SCORE_INGEST=poll</code>), close or clear the source PRs too, or
-            the points come back when you unfreeze.
+            comment stays on GitHub, and the poller reads those comments again — so
+            close or clear the source PRs too, or the points come back when you
+            unfreeze.
           </span>
         </div>
         <button

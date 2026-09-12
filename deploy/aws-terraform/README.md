@@ -187,9 +187,9 @@ Every input is in `variables.tf` with its own description;
 `github_org` and `admin_logins` are read at runtime, not baked into the image.
 `github_org` defaults to `""` and is legal empty only for an event that does
 not run Secure Development — the app then falls back to bare repo names. With
-`enable_secure_development = true` its own `validation` block requires it in
-**both** ingest modes: poll mode's sync exits at startup without one, and push
-mode would run a scorer whose forks have no org for the app to link to.
+`enable_secure_development = true` its own `validation` block requires it: sync
+exits at startup without one, and the app would have no org to build fork links
+from.
 
 ## Tear down
 

@@ -12,9 +12,8 @@
 //
 //   1. Fork Actions keep running. A contestant's PR is still judged and still
 //      gets its score comment — freezing stops INGESTION, not judging
-//      (`docs/operations.md`, "Freeze"). Poll mode's cursor holds in place and
-//      resumes; push mode's `POST /score` answers 503, which the fork's Action
-//      retries. Nothing is lost, only deferred. This is the fact an organizer
+//      (`docs/operations.md`, "Freeze"). The poller's cursor holds in place and
+//      resumes. Nothing is lost, only deferred. This is the fact an organizer
 //      most needs to relay and the fact the old copy never carried: the PR
 //      score is real, the board is on hold.
 //   2. Direct submissions are refused outright — quiz answers, classic flags,

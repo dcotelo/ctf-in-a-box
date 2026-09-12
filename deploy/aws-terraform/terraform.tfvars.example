@@ -49,11 +49,10 @@ acm_certificate_arn = ""
 
 # The GitHub org the target forks live in. Read by the app (and by sync, when
 # it runs) at runtime — this is the `.env`-equivalent of GITHUB_ORG for the
-# wizard-driven path. REQUIRED whenever enable_secure_development is true, in
-# either ingest mode: poll mode's sync refuses to start without one, and in
-# push mode the app would link contestants at forks with no org. Leave it empty
-# only for an event that does not run Secure Development — the app then falls
-# back to bare repo names.
+# wizard-driven path. REQUIRED whenever enable_secure_development is true: sync
+# refuses to start without one, and the app would link contestants at forks
+# with no org. Leave it empty only for an event that does not run Secure
+# Development — the app then falls back to bare repo names.
 # github_org = "your-event-org"
 
 # REQUIRED. Comma-separated GitHub logins allowed into /admin. Read by the app
@@ -65,15 +64,12 @@ admin_logins = "octocat,defunkt"
 # Same rule as the compose profiles.
 # enable_secure_development = true
 
-# "poll" runs sync, which polls GitHub for score comments — and it is the
-# transport going forward. "push" has the fork's Action POST to the scorer
-# instead, and runs no poller at all; it is DEPRECATED (issue #377) and
-# removed in v0.7, so leave this at "poll".
-# score_ingest = "poll"
+# There is no transport setting: sync polls GitHub for score comments, and the
+# push transport that once needed a `score_ingest` variable here was removed in
+# v0.6 (issue #377, ADR 56).
 
 # Images for the secure-development services. Ignored when
-# enable_secure_development is false (and sync_image also in push mode);
-# REQUIRED otherwise. Neither is published by this repo — deploy.sh builds and
+# enable_secure_development is false; REQUIRED otherwise. Neither is published by this repo — deploy.sh builds and
 # pushes only the app image:
 #   scorer_image: the mirror `setup/ctf-setup.sh org` pushes into your event
 #                 org — the same value as SCORE_IMAGE in .env.

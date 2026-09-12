@@ -70,7 +70,7 @@ their **Status** line; the record itself is never rewritten.
 - [ADR 52 — Modules are switched at runtime; Secure Development is configured at setup](#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)
 - [ADR 53 — ai launch tokens are asymmetric; event signatures stay symmetric](#adr-53-ai-launch-tokens-are-asymmetric-event-signatures-stay-symmetric)
 - [ADR 55 — Configuration v2: `.env` bootstrap, `/admin` runtime, no event.yaml](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml)
-- [ADR 56 — Poll is the score transport; push ingest is deprecated](#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)
+- [ADR 56 — Poll is the score transport; push ingest is removed](#adr-56-poll-is-the-score-transport-push-ingest-is-removed)
 
 ## ADR 1. Keep the GitHub fork/PR/Action flow — it is the pedagogy
 
@@ -113,7 +113,7 @@ conference CTF.
 
 ## ADR 3. Score transport: poll by default, push optional
 
-**Status.** Superseded 2026-09-12 by [ADR 56](#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated) — poll is *the* transport now: push is deprecated in v0.6 and removed in v0.7. Half of this entry's reasoning had already gone with [ADR 55](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml): there is no `event.yaml` and no `score_ingest` field, so `SCORE_INGEST` in `.env` is the only declaration left and the "nothing syncs the two" caveat below no longer describes anything. What survives is the poll half — the `sync` service reading score comments with a GitHub App installation token, and `caddy/Caddyfile.poll` having no `/score` route. The body below is kept as the record of the decision as it stood.
+**Status.** Superseded 2026-09-12 by [ADR 56](#adr-56-poll-is-the-score-transport-push-ingest-is-removed) — poll is *the* transport now: push ingest is removed in v0.6. Half of this entry's reasoning had already gone with [ADR 55](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml): there is no `event.yaml` and no `score_ingest` field, so `SCORE_INGEST` in `.env` is the only declaration left and the "nothing syncs the two" caveat below no longer describes anything. What survives is the poll half — the `sync` service reading score comments with a GitHub App installation token, and `caddy/Caddyfile.poll` having no `/score` route. The body below is kept as the record of the decision as it stood.
 
 **Context.** The scoring Action needs to get a result from the event org
 back to the organizer's box, which may or may not have a public URL.
@@ -132,7 +132,8 @@ instead of poll's ~30s cadence. `event.yaml`'s
 `modules.secure-development.score_ingest` field only documents the
 organizer's intent — the operative switch is the `SCORE_INGEST` env var in
 `.env`, and nothing syncs the two
-([Poll vs push](hosting.md#poll-vs-push)). Both modes authenticate against the
+([How scores reach the box](hosting.md#how-scores-reach-the-box)). Both modes
+authenticate against the
 in-repo scorer's bearer-authed `POST /score`, and push mode's
 `LEADERBOARD_URL`/`LEADERBOARD_TOKEN` org secrets are read by the kit's own
 scoring workflow — the two upstream dependencies this entry originally
@@ -3269,12 +3270,15 @@ problem, and it puts a file mount on the request path — the concern ADR 12 was
 right about. Moving the bootstrap keys into Redis as well was rejected because
 the admin allowlist cannot be stored behind the thing it guards access to.
 
-## ADR 56. Poll is the score transport; push ingest is deprecated
+## ADR 56. Poll is the score transport; push ingest is removed
 
 **Status.** Accepted 2026-09-12. Supersedes
 [ADR 3](#adr-3-score-transport-poll-by-default-push-optional). Implements
-issue [#377](https://github.com/dcotelo/owasp-ctf/issues/377) — step 1, the
-deprecation, ships in v0.6; the removal is v0.7.
+issue [#377](https://github.com/dcotelo/owasp-ctf/issues/377). Originally
+written as a two-release plan — deprecate in v0.6, remove in v0.7 — and
+revised the same day, before v0.6 was cut, to remove push in v0.6 outright.
+The revision is recorded under *Alternatives rejected* below, which is where
+the two-step plan now sits.
 
 **Context.** ADR 3 made poll the default and push an opt-in, on the reasoning
 that a box with a public URL should not have to wait ~30 s for a score. Two
@@ -3282,10 +3286,10 @@ releases of living with both transports say the option costs more than the
 latency it buys:
 
 - **Push has never been proven end to end.** No CI job, acceptance script or
-  bats case runs `SCORE_INGEST=push`. `scripts/smoke.sh` proves the poll
-  pipeline; `scripts/acceptance-scorer.sh` exercises the judge's
-  `SCORE_API`/`SCORE_TOKEN` hook against a fake leaderboard, which is the
-  scorer's half and not the transport. The Action side is an optional hook in
+  bats case ran `SCORE_INGEST=push`. `scripts/smoke.sh` proves the poll
+  pipeline; `scripts/acceptance-scorer.sh` exercised the judge's
+  `SCORE_API`/`SCORE_TOKEN` hook against a fake leaderboard, which was the
+  scorer's half and not the transport. The Action side was an optional hook in
   `scorer/src/judge.js`, fed by org secrets the wizard never set and `doctor`
   never checked.
 - **It is broken on the one hosted path the kit ships.** A Fly machine has no
@@ -3309,16 +3313,24 @@ latency it buys:
   on a leaderboard people look at between patches, and the public URL push
   requires is the same box poll already works on.
 
-**Decision.** Poll is the score transport for `secure-development`. Push is
-**deprecated in v0.6 and removed in v0.7**: for this release everything keeps
-working and every place that mentions it says what it is — the wizard stops
-asking (it writes `SCORE_INGEST=poll`, and names an existing `push` rather
-than rewriting the one switch compose reads), `doctor` warns about the `.env`
-value and about leftover `LEADERBOARD_URL`/`LEADERBOARD_TOKEN` org secrets,
-`--profile push` prints its own deprecation notice at bring-up, and the docs
-and diagrams mark the push branch deprecated. In v0.7 the mechanics go:
-`caddy/Caddyfile.push`, the `push` compose profile, `SCORE_INGEST` itself, and
-the judge's `SCORE_API`/`SCORE_TOKEN` leaderboard POST.
+**Decision.** Poll is the score transport for `secure-development`, and push
+ingest is **removed in v0.6**. Gone with it: `caddy/Caddyfile.push` (compose
+mounts a constant `caddy/Caddyfile.poll`), the `push` compose profile and its
+bring-up notice service, the `SCORE_INGEST` key itself — from `.env.example`,
+the wizard, `scripts/dev-stack`, the Fly deploy script and both AWS task
+definitions — the AWS module's `score_ingest` variable, and the judge's
+`SCORE_API`/`SCORE_TOKEN` leaderboard POST together with the
+`<!-- ctf-score:not-recorded -->` marker that POST was the only writer of.
+
+Two things deliberately outlive the transport, both in `doctor`. A `.env` that
+sets `SCORE_INGEST` to anything other than `poll` gets one advisory line
+saying the key is removed and is no longer read: whoever wrote `push` there
+believed they had a transport, and silence is the one wrong answer. A leftover
+`poll` says nothing, because it agrees with what the box now does. And the
+org-secrets check stays, reporting `LEADERBOARD_URL`/`LEADERBOARD_TOKEN` as
+unused standing credentials to delete — they are readable by runs a
+contestant's pull request triggers, and now they authorize nothing at all,
+which makes them worth *more* attention after the removal, not less.
 
 **Consequences.** One transport, one trust model: every score reaches the box
 as a bot-authored comment the poller filters by author before parsing, and
@@ -3331,15 +3343,23 @@ freeze semantics simplify to one behaviour (the cursor holds; there is no
 `503`-to-the-Action path to reason about). An organizer who wants faster
 ingest has `POLL_INTERVAL_MS`, not a second transport. The cost is a real
 capability removed rather than fixed: nobody gets instant scoring back, and an
-event already running on push has one release to move — which is why the
-deprecation names itself everywhere instead of only landing in a CHANGELOG.
+event already running on push loses it at upgrade. That last cost is the
+reason `doctor` names a leftover `SCORE_INGEST` by hand rather than leaving
+the change to a CHANGELOG line: the box keeps booting either way, so nothing
+else would ever tell its organizer that the transport they configured is not
+the one running.
 
 **Alternatives rejected.** *Keep push and prove it* — a CI job, an acceptance
 script and a Fly route would make the option honest, and that is exactly the
 work nobody has been willing to fund for two releases; an unproven transport
-in a scoring path is worse than no transport. *Remove it in one step* —
-rejected because `SCORE_INGEST=push` boots today: deleting the profile in the
-same release an organizer reads about it would break a running box between
-`git pull` and `up`. *Make push the default and drop poll* — the inverse
+in a scoring path is worse than no transport. *Deprecate in v0.6, remove in v0.7* — this ADR's
+own first draft, rejected on the day it was written. It was the careful shape
+for a transport people use, and this is not one: nothing the kit writes has
+ever set `SCORE_INGEST=push`, so having it takes a hand edit, and a release
+that only warns still ships every part of the mechanism — two Caddyfiles, two
+profiles, a validated key, a POST hook — for another cycle. The migration a
+deprecation release buys is an `.env` line an organizer deletes; `doctor` can
+say that in v0.6 as easily as a warning could, and a box whose `.env` still
+says `push` comes up exactly as before, now on the transport that works. *Make push the default and drop poll* — the inverse
 trade: it needs a public URL, inbound surface and org secrets for every
 event, including the laptop-behind-NAT case the kit is built for.

@@ -2,12 +2,12 @@
 //
 //   app     always on, behind the ALB
 //   srh     always on, internal — the ONLY thing that talks to ElastiCache
-//   scorer  when this event runs secure-development (poll AND push)
-//   sync    when it runs secure-development in POLL mode only
+//   scorer  when this event runs secure-development
+//   sync    when this event runs secure-development
 //
-// That last pair is the compose profiles, ported: `scorer` carries
-// ["secdev","push"] and `sync` carries ["secdev"], so a quiz-only event brings up
-// neither and never needs the scorer image at all.
+// That last pair is the compose `secdev` profile, ported: both services carry
+// it and nothing else does, so a quiz-only event brings up neither and never
+// needs the scorer image at all.
 //
 // Service discovery is AWS Cloud Map, so the app reaches srh at a stable name
 // the way compose gave it one. Without it the app would need an address for a
@@ -209,7 +209,6 @@ resource "aws_ecs_task_definition" "app" {
       { name = "EVENT_URL", value = local.event_url },
       { name = "BETTER_AUTH_URL", value = local.event_url },
       { name = "UPSTASH_REDIS_REST_URL", value = local.upstash_url },
-      { name = "SCORE_INGEST", value = var.score_ingest },
       // Same contract as docker-compose.yml's SCORE_IMAGE: non-empty means
       // this deployment runs Secure Development (the scorer task exists),
       // and that is the ONLY module enabled before an organizer switches
@@ -279,7 +278,6 @@ resource "aws_ecs_task_definition" "scorer" {
 
     environment = [
       { name = "UPSTASH_REDIS_REST_URL", value = local.upstash_url },
-      { name = "SCORE_INGEST", value = var.score_ingest },
     ]
 
     secrets          = local.worker_secrets

@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, appendFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadRubric } from "./rubric.js";
 import { validateProbes, runProbes, waitForApp } from "./probe.js";
@@ -93,30 +93,10 @@ export function renderReport({ challenges, solved, author, target, pr, sha, disc
   ].join("\n");
 }
 
-// Leaderboard push (SCORE_API set). Any failure returns false — the caller
-// appends the not-recorded marker and the run still succeeds: the comment
-// lands and the action nudges a re-push.
-async function postScore(env, body, fetchImpl) {
-  try {
-    const res = await fetchImpl(`${env.SCORE_API.replace(/\/+$/, "")}/score`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${env.SCORE_TOKEN}`, "content-type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(10_000),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
 export async function judge(env = process.env, { fetchImpl = fetch } = {}) {
   const { TARGET, APP_URL } = env;
   if (!TARGET) throw new Error("judge: TARGET is required");
   if (!APP_URL) throw new Error("judge: APP_URL is required");
-  if (env.SCORE_API && !env.SCORE_TOKEN) {
-    throw new Error("judge: SCORE_TOKEN is required when SCORE_API is set");
-  }
 
   const rubricDir = env.RUBRIC_DIR ?? "/rubric";
   const rubric = loadRubric(rubricDir);
@@ -140,8 +120,8 @@ export async function judge(env = process.env, { fetchImpl = fetch } = {}) {
   // ready — do not probe it from here". Security Shepherd's bring-up sets it: it
   // proves readiness with a real admin login (a much stronger signal than any
   // 200), and its TLS certificate expired in 2019, so probing it from THIS
-  // process would mean disabling certificate verification process-wide — in the
-  // same process that then carries SCORE_TOKEN to the organizer's leaderboard.
+  // process would mean disabling certificate verification process-wide, for
+  // every other request the judge makes.
   // An unreachable app is still caught: every exec child fails to report and the
   // run aborts. Matched as an exact string, so a typo'd or empty value keeps the
   // old behaviour (probe, then fail loudly) instead of silently skipping.
@@ -209,10 +189,6 @@ export async function judge(env = process.env, { fetchImpl = fetch } = {}) {
   const outDir = env.CTF_OUT_DIR ?? env.GITHUB_WORKSPACE ?? "/github/workspace";
   const reportPath = join(outDir, "ctf-score.md");
   writeFileSync(reportPath, renderReport({ challenges, solved, author, target: TARGET, pr, sha, disclose }));
-
-  if (env.SCORE_API && !(await postScore(env, { author, target: TARGET, solved, pr, sha }, fetchImpl))) {
-    appendFileSync(reportPath, "<!-- ctf-score:not-recorded -->\n");
-  }
 
   console.error(`ctf-score-engine: ${TARGET} judged — ${solved.length}/${challenges.length} patched (${reportPath})`);
   return { solved, total: challenges.length, reportPath };

@@ -50,14 +50,13 @@ poller ingests it only from `github-actions[bot]`-authored comments, and the
 workflow writes it only from the judge's own output. See
 [architecture.md](architecture.md)'s score data flow.
 
-**Poll vs push** — the score transports, of which **poll** is now the only
-one going forward: the `sync` service pulls score comments from GitHub every
-~30 s — zero inbound network surface, works behind NAT and venue wifi.
-**Push** — the fork's Action POSTing the score straight to the box,
-near-instant but needing a public URL — is **deprecated** and removed in v0.7
+**Poll** — the score transport, and the only one: the `sync` service pulls
+score comments from GitHub every ~30 s, so nothing has to reach the box from
+the internet and an event runs behind NAT or on venue wifi. **Push** — the
+fork's Action POSTing the score straight at the box — was removed in v0.6
 ([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
-[ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)).
-Canonical comparison: [hosting.md](hosting.md#poll-vs-push).
+[ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-removed)).
+How it fits together: [hosting.md](hosting.md#how-scores-reach-the-box).
 
 **Scorer** — the one score writer in the system: an engine (`scorer/`) with
 two modes — **serve** (the leaderboard API and the bearer-authed

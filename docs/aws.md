@@ -24,8 +24,8 @@ the earlier module, the upgrade is a move rather than an `apply`: see
 ## Why ECS now, when one EC2 box was the point
 
 The old module's argument was real and is worth stating before dismantling it:
-compose on one host needed no translation to task definitions, poll mode needed
-no inbound for scoring, and a replaced box repopulated its leaderboard from the
+compose on one host needed no translation to task definitions, scoring needed
+no inbound at all, and a replaced box repopulated its leaderboard from the
 GitHub PR comments.
 
 What changed the answer is **where the event's data lives**. On the box, Redis
@@ -110,9 +110,9 @@ path's equivalent of the wizard's `.env` — and mirrored into the app's
 task-definition environment the same way `scorer_image` is. Change either and
 `terraform apply` rolls it out; nothing has to be rebuilt or repushed.
 `admin_logins` must name at least one login, and `github_org` is required
-whenever `enable_secure_development` is true — in **both** ingest modes, since
-poll mode's sync exits at startup without one and push mode would leave the app
-building fork links with no org. Both are refused at plan time, not at apply.
+whenever `enable_secure_development` is true: `sync` exits at startup without
+one, and the app would build fork links with no org to point them at. Both are
+refused at plan time, not at apply.
 
 The image tag is content-addressed to the git revision, and ECR is set to
 immutable tags, so re-running with nothing changed reports "already there" and

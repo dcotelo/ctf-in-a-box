@@ -38,17 +38,15 @@ what runs at the event is what you exercised locally.
 | A GitHub OAuth app | Its callback must match the deployed hostname exactly |
 | Access to a `SCORE_IMAGE` | Mirrored into Fly's registry so the forks and the leaderboard judge with the same artifact |
 
-**Poll mode only.** Outbound polling is the fit for one machine with one
-public port — and it is also the only mode that works here: in compose, push
-mode relies on caddy routing `POST /score` to `scorer:4000`, and there is no
-caddy on a Fly machine. `fly.toml` exposes only the app on port 3000, so a
-fork's Action would POST its score into a 404 and nothing would say so.
-`deploy.sh` therefore refuses an `.env.fly` with `SCORE_INGEST=push`, and
-always will: push ingest is deprecated and removed in v0.7
-([#377](https://github.com/dcotelo/owasp-ctf/issues/377)), so Fly stays
-poll-only rather than growing a `/score` route (that was issue #373, now
-closed). Keep `SCORE_INGEST` at `poll` (or unset) in `.env`/`.env.fly` to
-match.
+**One public port is all a Fly machine needs.** Scores arrive by outbound
+polling — `sync` reads GitHub and submits over the machine's internal network
+— so `fly.toml` exposes only the app on port 3000 and nothing has to reach in.
+That fit was the argument for keeping Fly poll-only rather than giving it a
+`/score` route (issue #373, closed), and the question settled itself when push
+ingest was removed in v0.6
+([#377](https://github.com/dcotelo/owasp-ctf/issues/377)). A `SCORE_INGEST`
+line left over in `.env` or `.env.fly` is inert: nothing here reads it, and
+`deploy.sh` has nothing left to refuse.
 
 ## Deploy
 
@@ -401,7 +399,7 @@ is mandatory rather than optional.
 
 **No per-service secret scoping**, as above.
 
-What does hold: no inbound scoring surface in poll mode, TLS from Fly, srh
+What does hold: no inbound scoring surface at all, TLS from Fly, srh
 never public, and the datastore reachable from nothing outside the machine.
 
 ## Cost and shape

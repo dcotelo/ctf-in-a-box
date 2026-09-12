@@ -1,6 +1,6 @@
 <svg viewBox="0 0 880 512" xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-labelledby="ttl desc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
   <title id="ttl">Data flow for a score</title>
-  <desc id="desc">A contestant opens a PR; a pull_request_target Action judges the patch in the base repo; it posts a PR comment carrying the score marker (poll mode, the transport) or, on the faded branch marked deprecated, POSTs the score directly to /score (push mode, removed in v0.7 per issue 377); in poll mode, sync's tick filters comments by author, parses and validates, then POSTs to /score itself; scorer is the one writer, landing the score in redis via srh monotonically; the app then reads GET /leaderboard and composes the overlay pipeline (module-contributions, then team-standings, then hint-penalties folded last) before rendering. The score marker is trust-authoritative and only ever comes from the judge's own output, never from the PR checkout.</desc>
+  <desc id="desc">A contestant opens a PR; a pull_request_target Action judges the patch in the base repo; it posts a PR comment carrying the score marker, the one score transport since push ingest was removed in v0.6 per issue 377; sync's tick then filters comments by author, parses and validates, then POSTs to /score itself; scorer is the one writer, landing the score in redis via srh monotonically; the app then reads GET /leaderboard and composes the overlay pipeline (module-contributions, then team-standings, then hint-penalties folded last) before rendering. The score marker is trust-authoritative and only ever comes from the judge's own output, never from the PR checkout.</desc>
   <style>
     :root {
       --bg: #ffffff; --surface: #f6f8fa; --surface-2: #eaeef2; --border: #d0d7de;
@@ -69,18 +69,8 @@
   <text x="710" y="84" text-anchor="middle" font-size="13" fill="var(--text-bright)">PR comment</text>
   <text x="710" y="102" text-anchor="middle" font-size="10" fill="var(--text-muted)">bot-authored score marker</text>
 
-  <!-- The push branch is DEPRECATED (issue #377) and removed in v0.7: drawn
-       faded, with the deprecation on the label itself, so the picture says it
-       without relying on the caption. -->
-  <g opacity="0.5">
-    <line class="dgm-flow" x1="435" y1="118" x2="435" y2="230" stroke="var(--text-muted)" marker-end="url(#ar)"/>
-    <text x="447" y="180" font-size="10" fill="var(--text-muted)">push mode</text>
-    <text x="447" y="194" font-size="10" fill="var(--text-muted)">POST /score direct</text>
-    <text x="447" y="208" font-size="10" fill="var(--text-muted)">DEPRECATED (#377)</text>
-  </g>
-
   <line class="dgm-ants" x1="710" y1="118" x2="710" y2="230" stroke="var(--accent-2)" marker-end="url(#arB)"/>
-  <text x="722" y="188" font-size="10" fill="var(--accent-2)">poll mode</text>
+  <text x="722" y="188" font-size="10" fill="var(--accent-2)">the poller</text>
   <text x="722" y="202" font-size="10" fill="var(--accent-2)">pulled every ~30 s</text>
 
   <rect class="dgm-gate dgm-g2" x="610" y="236" width="200" height="54" rx="8" fill="var(--surface)" stroke="var(--border)"/>

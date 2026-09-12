@@ -16,7 +16,6 @@
 #   GITHUB_WORKSPACE   PR checkout (holds the PR's Dockerfile for the patch path)
 #   CTF_OUT_DIR        where ctf-score.md is written (default: GITHUB_WORKSPACE)
 #   GITHUB_EVENT_PATH  webhook payload (author/pr/sha)
-#   SCORE_API/SCORE_TOKEN  optional leaderboard push (engine skips POST if unset)
 set -eu
 
 NETWORK="${NETWORK:-ctfnet}"

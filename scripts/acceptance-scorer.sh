@@ -29,9 +29,12 @@
 #     (title line + "**N / M** challenges patched") with the expected N/M
 #   - oracle discipline: no probe path/expect string from the rubric leaks
 #   - the sync marker parses via the REAL sync/src/parse.js import
-#   - push mode: POST /score landed (no not-recorded marker) and
-#     GET /leaderboard shows rubric-derived points and totals
-#   - poll mode (no SCORE_API): marker still present, still no not-recorded
+#   - the poll transport end to end: the marker this judge wrote, POSTed to
+#     the scorer the way sync does, makes GET /leaderboard show rubric-derived
+#     points and totals
+#   - SCORE_API/SCORE_TOKEN in the judge's environment are inert (#377): the
+#     judge itself posts nothing, so a leaderboard entry can only have come
+#     from the POST this script makes
 # Needs Docker only; the sole network access is pulling node:22-alpine.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -46,7 +49,7 @@ SERVE_CTR=ctf-scorer-acceptance-serve
 APP_CTR=ctf-scorer-acceptance-app
 STOCK_CTR=ctf-scorer-acceptance-stock
 SERVE_PORT=4102
-# Freeze stage (organizer pause, push mode): a second serve instance backed by
+# Freeze stage (organizer pause): a second serve instance backed by
 # real Redis (via SRH), so the assertion below exercises isPaused()'s actual
 # HGET path rather than only the memory-store test seam node --test already
 # covers. Declared up front so cleanup()'s `set -u` reference is always valid,
@@ -57,10 +60,10 @@ FREEZE_SERVE_CTR=ctf-scorer-acceptance-serve-freeze
 FREEZE_SRH_TOKEN=freeze-srh-token
 FREEZE_PORT=4103
 TMP=$(mktemp -d /tmp/ctf-scorer-acceptance.XXXXXX)
-WS_PUSH="$TMP/workspace-push"
+WS_PATCHED="$TMP/workspace-patched"
 WS_POLL="$TMP/workspace-poll"
 WS_STOCK="$TMP/workspace-stock"
-mkdir -p "$WS_PUSH" "$WS_POLL" "$WS_STOCK"
+mkdir -p "$WS_PATCHED" "$WS_POLL" "$WS_STOCK"
 
 # Writes a workspace Dockerfile + app.js so juice-shop.sh's PR-patch path
 # (build a Dockerfile found at GITHUB_WORKSPACE) boots this fake app.
@@ -107,7 +110,7 @@ require("node:http").createServer((req, res) => {
 JS
 )
 
-write_fake_app "$WS_PUSH" "$APP_JS"
+write_fake_app "$WS_PATCHED" "$APP_JS"
 write_fake_app "$WS_POLL" "$APP_JS"
 
 echo "--- build scorer image (pinned to the example rubric)"
@@ -125,13 +128,34 @@ until curl -sf "http://127.0.0.1:$SERVE_PORT/healthz" >/dev/null 2>&1; do
   sleep 1
 done
 
-echo "--- run judge (push mode: SCORE_API set) via the score-action contract"
+# What sync does in production, inlined: read the `<!-- ctf-score: {...} -->`
+# marker out of a report with the REAL sync parser and POST it to the scorer
+# with the bearer token. Push ingest used to have the judge make this POST
+# itself; that hook is removed (#377), so the score reaches the leaderboard
+# the one way it now can, and this script exercises that path rather than
+# asserting around it.
+post_marker() {
+  local report="$1" body code
+  body="$(node -e '
+const { readFileSync } = require("node:fs");
+import("./sync/src/parse.js").then(({ parseScoreComment }) => {
+  const r = parseScoreComment(readFileSync(process.argv[1], "utf8"), { targets: ["juice-shop"] });
+  if (!r) { console.error("FAIL: marker did not parse"); process.exit(1); }
+  process.stdout.write(JSON.stringify(r));
+}).catch((e) => { console.error(e); process.exit(1); });
+' "$report")" || { echo "FAIL: could not read the marker from $report"; exit 1; }
+  code="$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://127.0.0.1:$SERVE_PORT/score" \
+    -H "authorization: Bearer test-token" -H 'content-type: application/json' -d "$body")"
+  [ "$code" = "202" ] || { echo "FAIL: POST /score for $report returned $code"; exit 1; }
+}
+
+echo "--- run judge via the score-action contract (SCORE_API set, and inert)"
 # No --network on purpose: score-action starts the scorer on the default
 # bridge and the entrypoint must self-attach to $NET over docker.sock.
 docker run --rm \
   --entrypoint /usr/local/bin/entrypoint.sh \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  -v "$WS_PUSH:/github/workspace" \
+  -v "$WS_PATCHED:/github/workspace" \
   -v "$TMP/event.json:/github/event.json:ro" \
   -e TARGET=juice-shop \
   -e APP_URL="http://$APP_CTR:3000" \
@@ -142,6 +166,11 @@ docker run --rm \
   -e SCORE_API="http://$SERVE_CTR:4000" \
   -e SCORE_TOKEN=test-token \
   "$IMG"
+# SCORE_API and SCORE_TOKEN above are deliberate DEAD environment: push ingest
+# is removed (#377) and the judge has no POST hook left. They stay in this run
+# so the leaderboard assertions below mean something - the entry can only come
+# from post_marker, never from the judge, and if a hook ever came back the
+# stage would double-post and the `solved !== 2` check would catch it.
 
 # entrypoint.sh ends every path in `exec score judge`, which replaces the
 # shell's process image — its own EXIT trap (meant to remove the app
@@ -151,7 +180,7 @@ docker run --rm \
 # before the next run reuses that same name.
 docker rm -f ctf-app-juice-shop >/dev/null 2>&1 || true
 
-REPORT="$WS_PUSH/ctf-score.md"
+REPORT="$WS_PATCHED/ctf-score.md"
 [ -f "$REPORT" ] || { echo "FAIL: judge wrote no ctf-score.md"; exit 1; }
 
 echo "--- report carries the score-action regexes with the expected count"
@@ -181,10 +210,8 @@ import("./sync/src/parse.js").then(({ parseScoreComment }) => {
 }).catch((e) => { console.error(e); process.exit(1); });
 ' "$REPORT"
 
-echo "--- push landed: no not-recorded marker"
-if grep -qF '<!-- ctf-score:not-recorded -->' "$REPORT"; then
-  echo "FAIL: push mode appended the not-recorded marker"; exit 1
-fi
+echo "--- poll transport: POST the marker to the scorer the way sync does"
+post_marker "$REPORT"
 
 echo "--- leaderboard shows octocat with rubric-derived points/totals"
 curl -sf "http://127.0.0.1:$SERVE_PORT/leaderboard" | node -e '
@@ -236,8 +263,6 @@ docker run --rm \
   -e GITHUB_WORKSPACE=/github/workspace \
   -e GITHUB_EVENT_PATH=/github/event.json \
   -e APP_READY_TRIES=15 -e APP_READY_DELAY=1 \
-  -e SCORE_API="http://$SERVE_CTR:4000" \
-  -e SCORE_TOKEN=test-token \
   "$IMG"
 
 docker rm -f ctf-app-juice-shop >/dev/null 2>&1 || true
@@ -245,9 +270,9 @@ docker rm -f ctf-app-juice-shop >/dev/null 2>&1 || true
 STOCK_REPORT="$WS_STOCK/ctf-score.md"
 [ -f "$STOCK_REPORT" ] || { echo "FAIL: stock judge wrote no ctf-score.md"; exit 1; }
 grep -qF '**0 / 3** challenges patched' "$STOCK_REPORT"
-if grep -qF '<!-- ctf-score:not-recorded -->' "$STOCK_REPORT"; then
-  echo "FAIL: stock run's empty-solve push must still be recorded (202)"; exit 1
-fi
+# An empty solve list is a real result, not a failure to report: the scorer
+# takes it (202) and the author stays at zero.
+post_marker "$STOCK_REPORT"
 
 echo "--- leaderboard: the stock author gained nothing (zero/absent entry)"
 curl -sf "http://127.0.0.1:$SERVE_PORT/leaderboard" | node -e '
@@ -265,7 +290,7 @@ process.stdin.on("data", (c) => (s += c)).on("end", () => {
 });
 '
 
-echo "--- run judge again in poll mode (no SCORE_API): marker only, no push"
+echo "--- run judge again with no SCORE_API at all: the same report either way"
 docker run --rm \
   --entrypoint /usr/local/bin/entrypoint.sh \
   -v /var/run/docker.sock:/var/run/docker.sock \
@@ -282,8 +307,11 @@ docker run --rm \
 POLL_REPORT="$WS_POLL/ctf-score.md"
 grep -qF '**2 / 3** challenges patched' "$POLL_REPORT"
 grep -qF '<!-- ctf-score: ' "$POLL_REPORT"
-if grep -qF '<!-- ctf-score:not-recorded -->' "$POLL_REPORT"; then
-  echo "FAIL: poll mode (no SCORE_API) must not mark not-recorded"; exit 1
+# Byte-identical to the run that had SCORE_API set: the judge's output does not
+# depend on that variable any more, which is the removal (#377) stated as an
+# assertion rather than as a comment.
+if ! cmp -s "$REPORT" "$POLL_REPORT"; then
+  echo "FAIL: SCORE_API changed the judge's report"; exit 1
 fi
 
 echo "--- freeze: boot a second serve instance backed by real Redis (via SRH)"

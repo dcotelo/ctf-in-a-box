@@ -184,7 +184,7 @@ test("readiness: unreachable APP_URL exits 1 through the real CLI", async (t) =>
 // ready by a stronger route than an HTTP GET". Security Shepherd's bring-up
 // needs it: its certificate expired in 2019, and the alternative — exporting
 // NODE_TLS_REJECT_UNAUTHORIZED=0 into the judge — would strip verification from
-// the leaderboard POST that carries SCORE_TOKEN. So a judge told zero tries must
+// every request the judge makes, not just this app's. So a judge told zero tries must
 // score the app WITHOUT probing it, even when a probe would have failed outright.
 test("readiness: APP_READY_TRIES=0 skips the probe instead of failing on it", async (t) => {
   const env = await baseEnv(t, { APP_READY_TRIES: "0", APP_READY_DELAY: "0" });
@@ -194,13 +194,18 @@ test("readiness: APP_READY_TRIES=0 skips the probe instead of failing on it", as
   assert.ok(total >= 1);
 });
 
-test("push mode: 2xx from SCORE_API records the score, no not-recorded marker", async (t) => {
+// Push ingest is GONE (issue #377, ADR 56): the judge has no leaderboard POST
+// hook left, so SCORE_API/SCORE_TOKEN in the environment must be inert. A
+// fetchImpl that throws on any request to the would-be leaderboard is how this
+// proves it — the readiness probe is skipped, and every probe this rubric runs
+// goes to the mock app, so a POST to SCORE_API is the only thing that could
+// reach it. The not-recorded marker had exactly one writer (that POST) and is
+// therefore gone from every report too.
+test("SCORE_API and SCORE_TOKEN are inert: the judge posts nothing anywhere", async (t) => {
   const { createServer } = await import("node:http");
-  const posts = [];
-  const api = createServer(async (req, res) => {
-    let body = "";
-    for await (const chunk of req) body += chunk;
-    posts.push({ url: req.url, auth: req.headers.authorization, body: JSON.parse(body) });
+  const hits = [];
+  const api = createServer((req, res) => {
+    hits.push(`${req.method} ${req.url}`);
     res.writeHead(202).end();
   });
   await new Promise((r) => api.listen(0, r));
@@ -210,40 +215,10 @@ test("push mode: 2xx from SCORE_API records the score, no not-recorded marker", 
     SCORE_API: `http://127.0.0.1:${api.address().port}`,
     SCORE_TOKEN: "push-tok",
   });
-  await judge(env);
-  assert.deepEqual(posts, [
-    {
-      url: "/score",
-      auth: "Bearer push-tok",
-      body: { author: "octocat", target: "juice-shop", solved: ["xss-search", "admin-panel"], pr: 7, sha: "abc123" },
-    },
-  ]);
+  const { total } = await judge(env);
+  assert.ok(total >= 1); // the run really happened — not a vacuous pass
   assert.ok(!report(env).includes(NOT_RECORDED));
-});
-
-test("push mode: rejected or unreachable SCORE_API appends not-recorded, still succeeds", async (t) => {
-  const { createServer } = await import("node:http");
-  const api = createServer((req, res) => res.writeHead(500).end());
-  await new Promise((r) => api.listen(0, r));
-  t.after(() => api.close());
-
-  const rejected = await baseEnv(t, {
-    SCORE_API: `http://127.0.0.1:${api.address().port}`,
-    SCORE_TOKEN: "push-tok",
-  });
-  await judge(rejected); // resolves — exit 0 contract
-  assert.match(report(rejected), /^<!-- ctf-score:not-recorded -->$/m);
-  // The JSON marker still parses even with the failure marker appended after it.
-  assert.equal(parseScoreComment(report(rejected), { targets: ["juice-shop"] })?.author, "octocat");
-
-  const unreachable = await baseEnv(t, { SCORE_API: "http://127.0.0.1:1", SCORE_TOKEN: "push-tok" });
-  await judge(unreachable);
-  assert.match(report(unreachable), /^<!-- ctf-score:not-recorded -->$/m);
-});
-
-test("push mode: SCORE_API without SCORE_TOKEN refuses at startup", async (t) => {
-  const env = await baseEnv(t, { SCORE_API: "http://127.0.0.1:1" });
-  await assert.rejects(judge(env), /SCORE_TOKEN is required when SCORE_API is set/);
+  assert.deepEqual(hits, []);
 });
 
 test("renderReport pins column layout and JSON key order", () => {
