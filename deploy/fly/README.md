@@ -106,7 +106,7 @@ deploys. `-h`/`--help` prints the same list.
 | `--from <path>` | `init` only | The compose `.env` copied (or `--refresh`ed) from. Default `.env` |
 | `--region <code>` | `init` only | Write `FLY_REGION` without prompting; three lowercase letters, validated; ignored if the env file already has one |
 | `--refresh` | `init` only | Re-copy the external-system credentials from `--from` — including `GITHUB_ORG` and `ADMIN_LOGINS` — overwriting; leaves `EVENT_URL`, `FLY_REGION`, `SRH_TOKEN`, `REDIS_PASSWORD`, then falls through to the top-up prompts |
-| `--skip-build` | deploy only | Reuse the images already in Fly's registry; safe for a config change, since the app image bakes nothing but its health-check build stamp |
+| `--skip-build` | deploy only | Reuse the images already in Fly's registry; safe for a config change, since the app image bakes nothing but its health-check build stamp. NOT safe after changing `SCORE_IMAGE`: the skip path reuses the `SCORER_IMAGE` already in the registry and never mirrors the new one, so deploy once without the flag first |
 
 `--from`, `--region` and `--refresh` are parsed on a deploy too, and ignored.
 
@@ -130,7 +130,11 @@ Each of these caught a real mistake:
 - a missing variable is named individually, not as a list
 - `--skip-build` is safe for a configuration change: since config v2 (#386)
   the app image bakes nothing but its health-check build stamp, and
-  `GITHUB_ORG`/`ADMIN_LOGINS` reach the machine as runtime environment
+  `GITHUB_ORG`/`ADMIN_LOGINS` reach the machine as runtime environment — with
+  one exception, `SCORE_IMAGE`, whose mirror step is skipped along with the
+  builds, so the machine keeps running the `SCORER_IMAGE` already in Fly's
+  registry (or is handed a tag Fly has never seen). Change that key and deploy
+  once WITHOUT `--skip-build`
 - images built `--platform linux/amd64`; an arm64 image deploys cleanly and
   then dies with an exec format error
 

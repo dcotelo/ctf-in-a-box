@@ -320,6 +320,46 @@ reviews:
         unbounded reads and writes. Flag removal, a large unjustified increase,
         or a truncation not reported in `caveats`.
 
+    - path: "apps/web/src/lib/{bootstrap-env,enabled-modules,enabled-apps,resolved-modules,site}.ts"
+      instructions: |
+        The bootstrap plane and the request-scoped settings read (config v2,
+        #386 / ADR 55; docs/reviewing.md section 10). Flag
+        ⚠️ WARNING: <description> — <fix> for:
+
+        Leaked bootstrap plane — `bootstrap-env.ts` losing its `server-only`
+        import, or an export of it re-exported from a module a client component
+        can reach. A client bundle must never carry who the admins are, and
+        `process.env` is empty or misleading there anyway.
+
+        Second settings read — a runtime `/admin` setting read outside the
+        `cache()`-memoized `getAdminSettingsSnapshot` (`enabled-modules.ts`,
+        imported by `resolved-modules.ts`, `enabled-apps.ts` and `site.ts`).
+        Two independent reads in one request can disagree on an unlucky Redis
+        blip; the memoized snapshot is what makes it once per request.
+
+        Baked bootstrap value — a `GITHUB_ORG`/`ADMIN_LOGINS`/`SCORE_IMAGE`
+        default reintroduced as a build-time constant or a generated module.
+        These are runtime environment reads; no image takes a config build-arg.
+
+    - path: "apps/web/src/**/*.tsx"
+      instructions: |
+        Flag ⚠️ WARNING: <description> — <fix> for:
+
+        Client-side bootstrap read — `process.env.ADMIN_LOGINS`,
+        `process.env.GITHUB_ORG`, `process.env.SCORE_IMAGE`, or any
+        `bootstrap-env.ts` export, reached from a module carrying
+        `"use client"` or from anything such a module imports. The admins list
+        must never reach a client bundle (config v2, #386; docs/reviewing.md
+        section 10).
+
+        Statically prerendered `/` — a `force-static`, a `generateStaticParams`,
+        a dropped `force-dynamic`/`revalidate = 0`, or any other change that
+        lets the home page be prerendered. The module nav resolves through a
+        build-time-unreachable Redis read, so a prerendered `/` bakes that read
+        into HTML that never updates without a rebuild. CI asserts
+        `apps/web/.next/server/app/index.html` does NOT exist (ci.yml's `app`
+        job); a change here must keep that true.
+
     - path: "apps/web/src/app/api/**"
       instructions: |
         Flag ⚠️ WARNING: <description> — <fix> for:

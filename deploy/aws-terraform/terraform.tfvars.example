@@ -1,7 +1,13 @@
 # Copy to terraform.tfvars and edit. terraform.tfvars is gitignored.
 #
 # Only two inputs have no default: domain and app_image.
-# Everything below them is optional and shown at its default.
+#
+# admin_logins is required too, through its validation block rather than
+# through a missing default: it defaults to "" so the refusal is a sentence
+# naming the problem instead of an interactive prompt in a non-interactive
+# plan, and a plan with no login in it is refused either way. github_org is
+# required on the same terms whenever enable_secure_development is true.
+# Everything else below is optional and shown at its default.
 
 region = "us-east-1"
 

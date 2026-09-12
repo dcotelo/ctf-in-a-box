@@ -145,7 +145,9 @@ read that could disagree with the first on an unlucky Redis blip; and `/`
 is never statically prerendered (CI's `.next/server/app/index.html`
 must-not-exist check, ci.yml's `app` job) — a prerendered `/` would bake
 this request-time read into static HTML that never updates again without a
-rebuild.
+rebuild. The last three of those are machine-enforced as well: `.coderabbit.yaml`
+carries path instructions for `bootstrap-env.ts` and the snapshot readers, and
+for `apps/web/src/**/*.tsx` (the client-bundle read and the prerendered `/`).
 
 **11. The public surface is a named list, not a shape.** Exactly five routes
 under `/api` answer without a session or a verified launch token, and each is
