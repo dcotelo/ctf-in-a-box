@@ -154,43 +154,26 @@ run "secure_development_without_a_scorer_image_is_refused" {
   expect_failures = [var.scorer_image]
 }
 
-run "poll_mode_without_a_sync_image_is_refused" {
+run "a_secure_development_event_without_a_sync_image_is_refused" {
   command = plan
 
   variables {
     enable_secure_development = true
-    score_ingest              = "poll"
     sync_image                = ""
   }
 
   expect_failures = [var.sync_image]
 }
 
-// github_org's rule follows enable_secure_development, NOT the ingest mode:
-// setup/ctf-setup.sh requires GITHUB_ORG for every non-empty SCORE_IMAGE. In
-// poll mode sync exits at startup without one (sync/src/config.js); in push
-// mode nothing exits, and the app quietly renders fork links with no org.
-// Both modes are asserted, because a rule that only covered poll would look
-// identical on the poll run alone.
-run "poll_mode_without_a_github_org_is_refused" {
+// github_org's rule follows enable_secure_development: setup/ctf-setup.sh
+// requires GITHUB_ORG for every non-empty SCORE_IMAGE, sync exits at startup
+// without one (sync/src/config.js), and the app would render fork links with
+// no org to build them from.
+run "secure_development_without_a_github_org_is_refused" {
   command = plan
 
   variables {
     enable_secure_development = true
-    score_ingest              = "poll"
-    github_org                = ""
-  }
-
-  expect_failures = [var.github_org]
-}
-
-run "push_mode_without_a_github_org_is_refused_too" {
-  command = plan
-
-  variables {
-    enable_secure_development = true
-    score_ingest              = "push"
-    sync_image                = ""
     github_org                = ""
   }
 
@@ -211,40 +194,19 @@ run "a_whitespace_only_github_org_is_refused" {
   expect_failures = [var.github_org]
 }
 
-// The complement: push mode WITH an org plans cleanly, so the rule above
-// cannot be satisfied by refusing push mode outright.
-run "push_mode_with_a_github_org_is_accepted" {
+// The complement: an event WITH an org plans cleanly, so the rule above cannot
+// be satisfied by refusing secure-development outright.
+run "secure_development_with_a_github_org_is_accepted" {
   command = plan
 
   variables {
     enable_secure_development = true
-    score_ingest              = "push"
-    sync_image                = ""
     github_org                = "owasp-ctf-test"
   }
 
   assert {
     condition     = length(aws_ecs_service.scorer) == 1
-    error_message = "A push-mode event with an org must still run the scorer."
-  }
-}
-
-// The complement of the run above, and the reason sync_image's rule is
-// narrower than scorer_image's: push mode has the fork's Action POST to the
-// scorer directly, so there is no poller and no image to demand. Without this
-// the validation could tighten to "always required" and no test would notice.
-run "push_mode_needs_no_sync_image" {
-  command = plan
-
-  variables {
-    enable_secure_development = true
-    score_ingest              = "push"
-    sync_image                = ""
-  }
-
-  assert {
-    condition     = length(aws_ecs_service.sync) == 0
-    error_message = "Push mode runs no poller, so it must not require a sync image."
+    error_message = "A secure-development event with an org must run the scorer."
   }
 }
 
@@ -295,12 +257,11 @@ run "secure_development_event_runs_scorer_and_sync" {
 
   variables {
     enable_secure_development = true
-    score_ingest              = "poll"
   }
 
   assert {
     condition     = length(aws_ecs_service.scorer) == 1 && length(aws_ecs_service.sync) == 1
-    error_message = "A poll-mode secure-development event runs both the scorer and sync."
+    error_message = "A secure-development event runs both the scorer and sync."
   }
 
   assert {
@@ -370,24 +331,31 @@ run "app_gets_no_score_image_when_secure_development_is_off" {
   }
 }
 
-run "push_mode_runs_no_poller" {
+// There is no SCORE_INGEST in either task definition any more (#377, ADR 56):
+// the key named a transport choice, and with push gone the poller is simply
+// always the answer. A stray copy would be a switch an operator could set and
+// nothing would read.
+run "no_task_definition_carries_a_score_ingest_variable" {
   command = plan
 
   variables {
     enable_secure_development = true
-    score_ingest              = "push"
   }
 
   assert {
-    condition     = length(aws_ecs_service.scorer) == 1
-    error_message = "Push mode still needs the scorer — the fork's Action POSTs to it."
+    condition = !anytrue([
+      for e in jsondecode(aws_ecs_task_definition.app.container_definitions)[0].environment :
+      e.name == "SCORE_INGEST"
+    ])
+    error_message = "the app task definition must not carry SCORE_INGEST"
   }
 
   assert {
-    // sync carries the ["secdev"] profile alone: in push mode there is nothing
-    // to poll, and a running poller would be a second ingest path.
-    condition     = length(aws_ecs_service.sync) == 0
-    error_message = "Push mode must run no sync: the fork POSTs directly, so there is nothing to poll."
+    condition = !anytrue([
+      for e in jsondecode(aws_ecs_task_definition.scorer[0].container_definitions)[0].environment :
+      e.name == "SCORE_INGEST"
+    ])
+    error_message = "the scorer task definition must not carry SCORE_INGEST"
   }
 }
 

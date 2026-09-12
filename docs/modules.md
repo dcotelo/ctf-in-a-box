@@ -84,18 +84,12 @@ the sections below are the enforceable contract behind it.
    such env var, since their routes, nav entries and tabs ship in every `app`
    image regardless.
 
-   `secure-development` is the worked example of the gating too, and its two
-   services are profiled *differently*: in `docker-compose.yml`, `scorer`
-   carries `["secdev", "push"]` — both ingest modes need the judge — while
-   `sync` carries `["secdev"]` alone. So `SCORE_INGEST=push` is brought up
-   with `--profile push`, which starts the scorer without the poller (in push
-   mode the fork's Action POSTs to the scorer directly, and there is nothing
-   to poll); `poll` uses `--profile secdev` and gets both. Push ingest is
-   **deprecated** ([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
-   [ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)):
-   it works this release, the profile prints its own deprecation notice at
-   bring-up, and in v0.7 it goes — leaving `scorer` with `["secdev"]` like
-   its sibling.
+   `secure-development` is the worked example of the gating too: in
+   `docker-compose.yml` both of its services — the `scorer` that judges and
+   the `sync` poller that brings scores back — carry `profiles: ["secdev"]`,
+   so one profile brings the module up whole and there is no line-up in which
+   one of them runs without the other. That is the shape to copy: one profile
+   per module, not a profile per way of using it.
 
    Disabling MUST NOT delete a module's data. Re-enabling has to restore the
    same board, or the toggle is a destructive action wearing a switch.
@@ -133,14 +127,15 @@ the sections below are the enforceable contract behind it.
    target later removed from the list keep counting; removing a target hides a
    board, it does not rewrite history.
 
-   The ingest transport was the one thing still chosen before the boxes come
-   up, and it is an `.env` key (`SCORE_INGEST`, `poll` or `push`) read by
-   `docker-compose.yml` and the Caddy profile — one declaration, no second copy
-   to drift (#372/#374). It stopped being a choice: `push` is deprecated
-   (#377) and the key goes with it in v0.7, leaving poll as the transport and
-   nothing about the transport to configure. A module MUST NOT add a second
-   knob that has to agree with an existing one — and, on this evidence, should
-   think twice before adding a first one.
+   The ingest transport was the last thing still chosen before the boxes came
+   up — `SCORE_INGEST` in `.env`, read by `docker-compose.yml` to pick a
+   Caddyfile and a profile — and it is gone, along with the choice it made
+   (Section 3). Its history is the lesson worth keeping. That value was
+   declared in two places at once, the event config file and `.env`, with
+   nothing syncing them, and a box duly ran one transport while its config
+   claimed the other (#372/#374). A module MUST NOT add a second knob that has to agree with an
+   existing one — and, on this evidence, should think twice before adding a
+   first one.
 
 5. MUST state whether it is **Archivable**: whether its content is wholly
    self-contained in Redis, and therefore carried whole by the whole-event
@@ -161,9 +156,8 @@ the sections below are the enforceable contract behind it.
 
 1. MUST submit every score through the single writer: `POST /score` on the
    local scorer. `sync/src/submit.js` is the only write path this repo
-   implements — both the poll pipeline (`sync`) and push-mode
-   (`score-action` POSTing directly) land on the same endpoint; there is no
-   second write path. A module MUST NOT invent one.
+   implements, and the poll pipeline is the only thing that walks it; there is
+   no second write path. A module MUST NOT invent one.
 
 2. Payload MUST be `{author, target, solved: string[], pr: number, sha:
    string}`, delivered as a bearer-authenticated JSON POST, and a success
@@ -202,25 +196,18 @@ the sections below are the enforceable contract behind it.
    `id@updated_at`, not bare id), and replays of an already-applied
    score are expected to be no-ops on the scorer side, not double-counts.
 
-## Section 3. Score transport options
+## Section 3. Score transport
 
-> Poll is **the** transport. Push is deprecated
-> ([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
-> [ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)):
-> it still works this release and is removed in v0.7, along with
-> `caddy/Caddyfile.push`, the `push` profile and the judge's
-> `SCORE_API`/`SCORE_TOKEN` hook. A new module reaching the platform from
-> outside should copy the poll shape below, never the push one.
+> There is one transport and nothing selects it. A module reaching the
+> platform from outside copies the shape below. Push ingest — the scoring
+> workflow POSTing straight at a public `/score` on the box — was removed in
+> v0.6 ([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
+> [ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-removed)),
+> along with `caddy/Caddyfile.push`, the `push` profile and the judge's
+> `SCORE_API`/`SCORE_TOKEN` hook, so a module MUST NOT expect an inbound
+> route to exist for it.
 
-1. **Push** — *deprecated, removed in v0.7*: the scoring workflow POSTs
-   directly to `${scorerUrl}/score` with a bearer token. Caddy only exposes
-   the `/score` route externally when running in push mode — compare
-   `caddy/Caddyfile.push` (has a
-   `handle /score { reverse_proxy scorer:4000 }` block) against
-   `caddy/Caddyfile.poll` (no `/score` route at all, `/score` has zero
-   inbound network surface).
-
-2. **Poll**: the workflow embeds a machine-readable HTML-comment block in
+1. **Poll**: the workflow embeds a machine-readable HTML-comment block in
    its PR comment, `<!-- ctf-score: {...} -->` (`sync/src/parse.js`,
    `MARKER`), authored by the trusted workflow identity
    (`github-actions[bot]` — `cfg.commentAuthor`, default in
@@ -235,7 +222,11 @@ the sections below are the enforceable contract behind it.
    `scripts/smoke.sh` proves the trust filter: a forged comment authored by
    `mallory` carrying a valid `ctf-score` block is fetched but never
    scored, because it's dropped by the author filter, not by JSON parsing.
-   A module using poll transport MUST post its score comment from the
+   Nothing reaches the box for any of this: `sync` fetches outbound, and
+   `caddy/Caddyfile.poll` — the only Caddyfile — has no `/score` route at all.
+
+2. **Trust is the comment author, and nothing else.**
+   A module using this transport MUST post its score comment from the
    org-repo workflow context (e.g. a `pull_request_target` Action running
    as `github-actions[bot]`), never from a user-controlled identity —
    trust here is entirely the GitHub-authenticated comment author, not
@@ -788,8 +779,8 @@ of one module's shape.
    reproduce this isolation for its own scoring workflow, not just inherit
    it by accident.
 
-2. **Oracle discipline**: contestant-visible output (PR comment, push/poll
-   payload) MUST be pass/fail plus points only — never failing-test names,
+2. **Oracle discipline**: contestant-visible output (the PR comment and the
+   score payload in it) MUST be pass/fail plus points only — never failing-test names,
    assertion messages, or exploit payloads. Verbose diagnostics stay in the
    private workflow log, visible to org admins only. This holds whether or
    not the rubric is private (the stock one ships public — ADR 18): an

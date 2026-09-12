@@ -210,14 +210,15 @@ count_key_lines() {
 # nothing useful to say about a key nobody here looks at, and listing them is
 # what lets it name the offender instead of printing a diff.
 READ_KEYS="EVENT_URL BETTER_AUTH_SECRET GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET
-SCORER_TOKEN SRH_TOKEN REDIS_PASSWORD SCORE_IMAGE SCORE_INGEST GITHUB_ORG
+SCORER_TOKEN SRH_TOKEN REDIS_PASSWORD SCORE_IMAGE GITHUB_ORG
 ADMIN_LOGINS GITHUB_APP_ID GITHUB_APP_PRIVATE_KEY GITHUB_APP_INSTALLATION_ID
 FLY_REGION FLY_AUTO_STOP REDIS_DIR STATE_PATH"
 
 # A key assigned twice is not an error — compose takes the last one and so does
 # every reader here — but it is nearly always a mistake, and a silent one: the
-# reported `.env.fly` in #381 had SCORE_INGEST and SCORE_IMAGE defined twice,
-# so an organizer editing the first occurrence changed nothing at all.
+# reported `.env.fly` in #381 had SCORE_IMAGE defined twice (and SCORE_INGEST,
+# a key since removed by #377), so an organizer editing the first occurrence
+# changed nothing at all.
 warn_duplicate_keys() {
   local file="$1" key dups=""
   [ -f "$file" ] || return 0
@@ -635,32 +636,6 @@ if [ -n "$missing_knobs" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# This module is POLL-ONLY, and says so rather than deploying something that
-# scores nothing. In compose, push mode works because caddy routes POST /score
-# to scorer:4000 (caddy/Caddyfile.push). There is no caddy here: fly.toml's
-# only ingress is [http_service] on the app's port 3000, so a fork's Action
-# POSTing to $EVENT_URL/score gets the app's 404 — and the Action's score step
-# is not what fails the workflow, so nothing anywhere says a score was lost.
-# Probed live on 2026-09-09: `POST https://<event>/score -> 404` (issue #373).
-# Refused in dry-run too, so a review of the plan catches it. Empty means
-# poll, as in docker-compose.yml.
-# ---------------------------------------------------------------------------
-SCORE_INGEST_MODE="$(env_value SCORE_INGEST)"
-case "${SCORE_INGEST_MODE:-poll}" in
-  poll) ;;
-  push)
-    echo "FAIL: SCORE_INGEST=push in $ENV_FILE, but the Fly module is poll-only." >&2
-    echo "      Nothing on a Fly machine routes POST /score to the scorer (no caddy;" >&2
-    echo "      fly.toml exposes only the app on :3000), so every fork's Action would" >&2
-    echo "      POST into a 404 and no score would reach the leaderboard. See #373." >&2
-    echo "      Set SCORE_INGEST=poll in $ENV_FILE — that is the only copy of the switch." >&2
-    exit 1 ;;
-  *)
-    echo "FAIL: SCORE_INGEST in $ENV_FILE is '$SCORE_INGEST_MODE' — must be poll (push is not supported on Fly, #373)." >&2
-    exit 1 ;;
-esac
-
-# ---------------------------------------------------------------------------
 # EVENT_URL must be the fly hostname, and it must be https.
 #
 # The app refuses to serve a production event over plain HTTP to a non-local
@@ -724,8 +699,9 @@ esac
 # An empty ADMIN_LOGINS deploys an event whose /admin forbids EVERYONE,
 # including the operator who just deployed it; an empty GITHUB_ORG leaves sync
 # exiting at start-up on a machine whose other four containers look healthy.
-# Fly is poll-only (see the SCORE_INGEST refusal above), so sync always runs
-# here and the org is never optional.
+# Poll is the score transport everywhere (#377, ADR 56) and this module has
+# always been poll-only (#373), so sync always runs here and the org is never
+# optional.
 for name in BETTER_AUTH_SECRET GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET SCORER_TOKEN \
             GITHUB_ORG ADMIN_LOGINS; do
   require "$name" "$(env_value "$name")"

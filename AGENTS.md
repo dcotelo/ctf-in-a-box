@@ -14,7 +14,7 @@ These are the authoritative commands — they match what CI runs in
 the suites on 22 — a sync/scorer suite was green on Node 25 and red on 22 in
 CI (#256, an unref'd `AbortSignal.timeout` timer).
 
-**sync** (poll/push transport service):
+**sync** (the score poller):
 
 ```sh
 cd sync && npm ci && npm test
@@ -267,10 +267,9 @@ suggestions.
   skips every fork/mirror/poll step. Everything else (the event's identity,
   which modules run, which targets) is a runtime `/admin` setting.
 - **Compose profiles follow `SCORE_IMAGE`.** `app` is always on.
-  `secure-development`'s two services are profiled *differently*, and that is
-  deliberate: `scorer` carries `["secdev", "push"]` (both ingest modes need
-  it), `sync` carries `["secdev"]` only — in push mode the fork's Action POSTs
-  to the scorer directly, so there is no poller to run. Whoever brings the
+  `secure-development`'s two services both carry `["secdev"]` and nothing
+  else — poll is the one score transport (#377, ADR 56), so the scorer and the
+  poller are always brought up together. Whoever brings the
   stack up adds `--profile secdev` **iff `SCORE_IMAGE` is non-empty**, which
   is the one place "does this event run Secure Development" is answered and
   never a second knob — `scripts/dev-stack` and `deploy/fly/render-compose.sh`
@@ -353,14 +352,14 @@ suggestions.
 - `sync/` — poll service feeding the leaderboard from score comments. Plain
   Node.js, `node:test`.
 - `setup/` — `ctf-setup.sh` and event provisioning. Bash, `bats`.
-- `caddy/` — `Caddyfile.poll` / `Caddyfile.push`, mounted by `SCORE_INGEST`.
-  Push adds `handle /score` to `scorer:4000` for the fork's Action; the rest
-  proxies to `app:3000`. Same headers in both — change them together. **Push
-  ingest is DEPRECATED (#377, ADR 56) and removed in v0.7**, together with
-  `Caddyfile.push`, the `push` compose profile (and its `push-deprecated`
-  notice service), `SCORE_INGEST` and the judge's `SCORE_API`/`SCORE_TOKEN`
-  hook. Until then it keeps working: nothing here writes `push` any more, and
-  every place that still reads it says what it is.
+- `caddy/` — `Caddyfile.poll`, the only Caddyfile, mounted at a constant path
+  by `docker-compose.yml`. It proxies to `app:3000` and gives the box **no**
+  inbound scoring surface at all. There is no `/score` route to add: push
+  ingest was removed in v0.6 (#377, ADR 56), taking `Caddyfile.push`, the
+  `push` compose profile, the `SCORE_INGEST` key and the judge's
+  `SCORE_API`/`SCORE_TOKEN` hook with it. A `.env` carried over from a push
+  event still boots — nothing reads the key — and `ctf-setup.sh doctor` names
+  the stale line once.
 - `patches/` — `<target>/<challenge-id>.patch`, one reference fix per
   challenge; the input to `acceptance-patched.sh`. `git`-format diffs against
   the source the script pins by commit; `patches/README.md` is the contract.
@@ -390,7 +389,7 @@ suggestions.
 - [`docs/scorer.md`](docs/scorer.md) — the scorer engine: serve + judge
   modes, both rubric grammars, authoring and building rubrics.
 - [`docs/hosting.md`](docs/hosting.md) — standing the kit up: prerequisites,
-  poll vs push, OAuth app, event config.
+  how scores reach the box, OAuth app, the `.env` bootstrap.
 - [`docs/operations.md`](docs/operations.md) — running the event once it is
   up: admin panel and runtime overrides, teams, the event archive, per-module
   runbooks, pre-event verification, dev-stack, known limitations.

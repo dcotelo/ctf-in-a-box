@@ -11,12 +11,12 @@
 // hearing about from the registry rather than from a contestant.
 
 locals {
-  // sync exists only in poll mode; in push mode the fork's Action POSTs to the
-  // scorer directly. Both exist only when this event runs secure-development.
+  // Both exist exactly when this event runs secure-development — poll is the
+  // only score transport (#377, ADR 56), so the poller is never optional.
   // Same rule as the compose profiles, and the reason a quiz-only event brings
   // up neither.
   run_scorer = var.enable_secure_development
-  run_sync   = var.enable_secure_development && var.score_ingest == "poll"
+  run_sync   = var.enable_secure_development
 
   // Only the app is built by this module's own deploy.sh. The scorer and sync
   // images are the kit's own and are pulled from wherever the operator points

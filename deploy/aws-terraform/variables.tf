@@ -97,7 +97,7 @@ variable "acm_certificate_arn" {
 // --- what this event runs --------------------------------------------------
 
 variable "github_org" {
-  description = "The GitHub org the target forks live in. Read by the app and by sync at runtime (config v2, #386) — mirrored into both task definitions like scorer_image. Empty is legal only for an event that does not run Secure Development: the app then falls back to bare repo names. Required whenever enable_secure_development is true, in BOTH ingest modes."
+  description = "The GitHub org the target forks live in. Read by the app and by sync at runtime (config v2, #386) — mirrored into both task definitions like scorer_image. Empty is legal only for an event that does not run Secure Development: the app then falls back to bare repo names. Required whenever enable_secure_development is true."
   type        = string
   default     = ""
 
@@ -149,17 +149,6 @@ variable "enable_secure_development" {
   default     = true
 }
 
-variable "score_ingest" {
-  description = "How fork scores reach the box. 'poll' runs sync (which polls GitHub); 'push' has the fork's Action POST to the scorer and runs no sync."
-  type        = string
-  default     = "poll"
-
-  validation {
-    condition     = contains(["poll", "push"], var.score_ingest)
-    error_message = "score_ingest must be \"poll\" or \"push\"."
-  }
-}
-
 // --- images ----------------------------------------------------------------
 
 variable "app_image" {
@@ -185,16 +174,17 @@ variable "scorer_image" {
 }
 
 variable "sync_image" {
-  description = "Fully qualified sync image. Ignored unless enable_secure_development and score_ingest == \"poll\", and REQUIRED in that combination."
+  description = "Fully qualified sync image. Ignored unless enable_secure_development, and REQUIRED when it is on."
   type        = string
   default     = ""
 
-  // Narrower than scorer_image's rule on purpose, and for the same reason the
-  // compose profiles differ: push mode has the fork's Action POST to the
-  // scorer directly, so there is no poller to run and no image to demand.
+  // Same rule as scorer_image's now that poll is the only score transport
+  // (#377, ADR 56): a secure-development event always runs the poller, so it
+  // always needs this image. It used to be narrower, because push mode had the
+  // fork's Action POST to the scorer and ran no poller at all.
   validation {
-    condition     = !(var.enable_secure_development && var.score_ingest == "poll") || var.sync_image != ""
-    error_message = "sync_image is required when enable_secure_development is true and score_ingest is \"poll\" — that combination runs the sync task. Push mode needs no poller."
+    condition     = !var.enable_secure_development || var.sync_image != ""
+    error_message = "sync_image is required when enable_secure_development is true — that event runs the sync task, which polls each fork for score comments."
   }
 }
 

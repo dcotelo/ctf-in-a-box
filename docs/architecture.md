@@ -38,7 +38,7 @@ the registry still fails the build loudly; the boundary is the
 | The disposable per-event GitHub **org** and its lifecycle (`setup/ctf-setup.sh`). | The **targets** it forks/provisions per event, and its teardown equivalents (contract §7). |
 | **Auth** (GitHub OAuth sign-in) and the **admins** allowlist. | — (uses the platform's identity). |
 | **Team** registration, roster, join codes, the dedupe rollup, and the requirement that a contestant be on a team before anything scores (`apps/web`, `ctf:team:*`). | — (scores are per `author`; the platform maps authors to teams). |
-| The **scoring pipeline**: the single audited writer `POST /score`, poll/push transports, the `github-actions[bot]` trust filter (`sync/`, `scorer/`). | Its **scoring workflow** and the score payloads it submits through that one writer (contract §2–3, §6). |
+| The **scoring pipeline**: the single audited writer `POST /score`, the poll transport, the `github-actions[bot]` trust filter (`sync/`, `scorer/`). | Its **scoring workflow** and the score payloads it submits through that one writer (contract §2–3, §6). |
 | **Leaderboard** ranking, points aggregation, the score-over-time series, and rendering (`scorer/src/serve.js`, `apps/web`). | Its **challenge catalogue** — stable target/challenge IDs with totals — plus display metadata and progress semantics (contract §4–5). |
 | The **admin panel** runtime overrides (freeze, hints, registration, module enablement, per-module display name/blurb) (`ctf:admin:settings`). | — (inherits the controls; its registry `displayName`/`description` are the defaults an organizer's `moduleTitle:<id>`/`moduleBlurb:<id>` override). |
 | The **two config planes** (runtime config flow below): the `.env` bootstrap keys every container reads at start, and the `ctf:admin:settings` hash `/admin` writes and every reader re-reads live — including the event's identity, the enabled module set and the Secure Development target list (#386). | Its entry in the static module registry, plus whatever runtime settings it adds to that same hash through the validated settings path (contract §1). |
@@ -55,7 +55,7 @@ Everything runs as one `docker-compose.yml` stack (see
 Two independent things happen in parallel: contestants browsing the app, and
 scores flowing in from GitHub.
 
-<img src="assets/diagrams/system-overview.svg" alt="Animated diagram. One docker-compose box at runtime. The contestant browser reaches caddy over HTTPS; caddy proxies to the app; the app reads teams and hints from srh and the leaderboard from scorer; scorer is the one writer for secure-development score state, landing it in redis via srh; secure-development scores arrive by poll-mode sync polling GitHub and posting to scorer directly, or through the faded push tile marked deprecated, where a scoring Action posts to /score (removed in v0.7 per issue 377). Quiz, classic and ai score entirely app-side and never touch scorer.">
+<img src="assets/diagrams/system-overview.svg" alt="Animated diagram. One docker-compose box at runtime. The contestant browser reaches caddy over HTTPS; caddy proxies to the app; the app reads teams and hints from srh and the leaderboard from scorer; scorer is the one writer for secure-development score state, landing it in redis via srh; secure-development scores arrive one way, by sync polling GitHub and posting to scorer directly, the push tile where a scoring Action posted to /score having been removed in v0.6 per issue 377. Quiz, classic and ai score entirely app-side and never touch scorer.">
 
 The plain-text shape, for anything that can't render the animation above:
 
@@ -65,10 +65,9 @@ The plain-text shape, for anything that can't render the animation above:
                                  | HTTPS
                                  v
                           +-------------+
-                          |    caddy    |   reverse proxy; Caddyfile chosen
-                          +------+------+   by SCORE_INGEST (poll|push —
-                                 |          push DEPRECATED, #377)
-                 poll: only "/" |  push: "/" and "/score"
+                          |    caddy    |   reverse proxy; one Caddyfile,
+                          +------+------+   whose only route is "/"
+                                 |
                                  v
                           +-------------+
                           |     app     |   Next.js contestant UI
@@ -86,16 +85,14 @@ The plain-text shape, for anything that can't render the animation above:
                     |  subset)  |         ^
                     +-----+-----+         | POST /score (bearer token)
                           v               |
-                    +-----------+    +----+-------------------+
-                    |   redis   |    |                        |
-                    +-----------+  push mode               poll mode:
-                                   (DEPRECATED, #377):  sync polls the event
-                                  scoring Action         org's forked repos'
-                                  POSTs to scorer        issue comments via
-                                  via caddy /score        a GitHub App token,
-                                  (public URL needed)     then POSTs to scorer
-                                                           directly (no public
-                                                           URL needed)
+                    +-----------+    +----+-----------------------+
+                    |   redis   |    | sync polls the event org's |
+                    +-----------+    | forked repos' issue        |
+                                     | comments via a GitHub App  |
+                                     | token, then POSTs to       |
+                                     | scorer directly — nothing  |
+                                     | reaches the box inbound    |
+                                     +----------------------------+
 ```
 
 `app` reaches `srh` directly (team/hint data plus the leaderboard read
@@ -109,16 +106,16 @@ state; everything else that touches scores goes through it.
 
 | Service | Source | Responsibility |
 |---|---|---|
-| `caddy` | `caddy:2-alpine` image (digest-pinned, [ADR 51](decisions.md#adr-51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)); `caddy/Caddyfile.poll` or `caddy/Caddyfile.push` selected by `SCORE_INGEST` | Reverse proxy in front of `app`. Push mode adds a `/score` route to `scorer`; poll mode has no `/score` route at all — zero inbound scoring surface. Push is **deprecated** ([#377](https://github.com/dcotelo/owasp-ctf/issues/377), [ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)): `Caddyfile.push` and the `push` profile are removed in v0.7, leaving one Caddyfile and no inbound scoring surface anywhere. |
+| `caddy` | `caddy:2-alpine` image (digest-pinned, [ADR 51](decisions.md#adr-51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)); the one Caddyfile, `caddy/Caddyfile.poll`, mounted unconditionally | Reverse proxy in front of `app`, and that is its whole job: there is one Caddyfile, it has no `/score` route to `scorer`, and no setting adds one — so the box has zero inbound scoring surface. |
 | `app` | `apps/web/` (vendored Next.js app, built from local source via `apps/web/Dockerfile`) | Contestant-facing UI: GitHub sign-in, challenge browser, leaderboard, rules/FAQ/how-to-play pages. It reads nothing at build time: `ADMIN_LOGINS` and `GITHUB_ORG` come from the environment at container start, and the event's dates, name and other identity fields, which modules run and which Secure Development targets run are all runtime `/admin` settings (see below). |
-| `scorer` | `${SCORE_IMAGE:-…}` — your own build from the in-repo engine `scorer/`, which bakes the public vendored rubric by default (see [docs/scorer.md](scorer.md)); `setup/ctf-setup.sh org` mirrors whatever `SCORE_IMAGE` names into the event org. The compose fallback `ghcr.io/owasp-ctf/score:latest` is a private upstream image the kit does not assume access to. | Judges submitted PRs against the baked rubric; exposes `POST /score` (bearer-token authed write) and `GET /leaderboard`. The one score writer in the system. Part of the `secure-development` module, so it carries `profiles: ["secdev", "push"]` — both ingest modes need it, unlike `sync`, which is `["secdev"]` only. `SCORE_IMAGE` decides *availability*: non-empty is what adds a Secure Development profile at `up` (so this container exists at all) and what seeds the default module set, and with it empty the scorer cannot run. What is *live* is `enabledModules` in `ctf:admin:settings`, set from `/admin` — so an available Secure Development module can still be switched off, and a running scorer is not by itself an enabled module. See [ADR 26](decisions.md#adr-26-compose-profiles-follow-the-enabled-modules), superseded by [ADR 55](decisions.md#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml). |
+| `scorer` | `${SCORE_IMAGE:-…}` — your own build from the in-repo engine `scorer/`, which bakes the public vendored rubric by default (see [docs/scorer.md](scorer.md)); `setup/ctf-setup.sh org` mirrors whatever `SCORE_IMAGE` names into the event org. The compose fallback `ghcr.io/owasp-ctf/score:latest` is a private upstream image the kit does not assume access to. | Judges submitted PRs against the baked rubric; exposes `POST /score` (bearer-token authed write) and `GET /leaderboard`. The one score writer in the system. Part of the `secure-development` module, so it carries `profiles: ["secdev"]`, the same profile as `sync`: the two come up together or not at all. `SCORE_IMAGE` decides *availability*: non-empty is what adds a Secure Development profile at `up` (so this container exists at all) and what seeds the default module set, and with it empty the scorer cannot run. What is *live* is `enabledModules` in `ctf:admin:settings`, set from `/admin` — so an available Secure Development module can still be switched off, and a running scorer is not by itself an enabled module. See [ADR 26](decisions.md#adr-26-compose-profiles-follow-the-enabled-modules), superseded by [ADR 55](decisions.md#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml). |
 | `srh` | `hiett/serverless-redis-http` | Upstash-REST-compatible HTTP proxy in front of `redis`, so the app's `@upstash/redis` client works unchanged against local Redis. Implements only the POST-command-array subset of Upstash's REST API (no path-style `GET /get/<key>` shortcut — see `scripts/smoke.sh`). |
 | `redis` | `redis:8-alpine` (digest-pinned, [ADR 51](decisions.md#adr-51-base-images-are-digest-pinned-and-dependabot-is-what-keeps-the-pin-honest)), `--appendonly yes` | Durable state: scores, team/hint data. Named volume `redis-data` survives box reboots. |
-| `sync` | `sync/` (Node, `sync/src/*.js`) | Poll-mode only (`profiles: ["secdev"]`). Polls the event org's forked target repos' issue comments with a GitHub App installation token, validates them, and forwards trusted score payloads to `scorer`. Also reads the organizer's pause flag, master-reset epoch and Secure Development target list every tick and writes a heartbeat (see "Organizer admin panel" below). It no longer decides whether it is enabled — the compose profile does, so if the container is up it polls; a missing `GITHUB_ORG` is therefore a genuine misconfiguration and `sync` refuses to start, exiting non-zero and naming the key. `restart: on-failure` restarts exactly that, so the container comes back and logs the same refusal until `GITHUB_ORG` is set — which is what an organizer wants, rather than one message scrolling away in a container nothing brings back. |
+| `sync` | `sync/` (Node, `sync/src/*.js`) | The score transport (`profiles: ["secdev"]`). Polls the event org's forked target repos' issue comments with a GitHub App installation token, validates them, and forwards trusted score payloads to `scorer`. Also reads the organizer's pause flag, master-reset epoch and Secure Development target list every tick and writes a heartbeat (see "Organizer admin panel" below). It no longer decides whether it is enabled — the compose profile does, so if the container is up it polls; a missing `GITHUB_ORG` is therefore a genuine misconfiguration and `sync` refuses to start, exiting non-zero and naming the key. `restart: on-failure` restarts exactly that, so the container comes back and logs the same refusal until `GITHUB_ORG` is set — which is what an organizer wants, rather than one message scrolling away in a container nothing brings back. |
 
 ## Data flow for a score
 
-<img src="assets/diagrams/score-data-flow.svg" alt="Animated diagram. A contestant opens a PR; a pull_request_target Action judges the patch in the base repo; it posts a PR comment carrying the score marker (poll mode, the transport) or, on the faded branch marked deprecated, POSTs the score directly to /score (push mode, removed in v0.7 per issue 377); in poll mode, sync's tick filters comments by author, parses and validates, then POSTs to /score itself; scorer is the one writer, landing the score in redis via srh monotonically; the app then reads GET /leaderboard and composes the overlay pipeline (module-contributions, then team-standings, then hint-penalties folded last) before rendering. The score marker is trust-authoritative and only ever comes from the judge's own output, never from the PR checkout.">
+<img src="assets/diagrams/score-data-flow.svg" alt="Animated diagram. A contestant opens a PR; a pull_request_target Action judges the patch in the base repo; it posts a PR comment carrying the score marker, the one score transport since push ingest was removed in v0.6 per issue 377; sync's tick then filters comments by author, parses and validates, then POSTs to /score itself; scorer is the one writer, landing the score in redis via srh monotonically; the app then reads GET /leaderboard and composes the overlay pipeline (module-contributions, then team-standings, then hint-penalties folded last) before rendering. The score marker is trust-authoritative and only ever comes from the judge's own output, never from the PR checkout.">
 
 1. A contestant forks a target repo in the event org, patches a
    vulnerability, and opens a PR back to the org's copy.
@@ -129,26 +126,19 @@ state; everything else that touches scores goes through it.
    runs in the *base* repo's context — where org secrets live — and scores
    the patch using the private `scorer` image, while the contestant's PR
    code runs sandboxed with no access to those secrets.
-3. The Action reports the result one of two ways, depending on
-   `SCORE_INGEST` — poll is the transport, and push is **deprecated**
+3. The Action reports the result the only way there is: a PR comment authored
+   as `github-actions[bot]` carrying a machine-readable marker,
+   `<!-- ctf-score: {...} -->` (`sync/src/parse.js`'s `MARKER`). Nothing in
+   the workflow talks to the box at all — push ingest, where the Action POSTed
+   the score straight at a public `/score`, was removed in v0.6
    ([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
-   [ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)):
-   it works in this release and is removed in v0.7, hook included:
-   - **push** (deprecated): POSTs the score directly to `${scorerUrl}/score` (through
-     `caddy`'s `/score` route) with a bearer token. The scorer compares that
-     token in constant time — both sides are SHA-256'd and passed to
-     `timingSafeEqual`, so neither the token's bytes nor its length are
-     recoverable from how long a rejection takes.
-   - **poll** (default): posts a PR comment authored as
-     `github-actions[bot]` containing a machine-readable marker,
-     `<!-- ctf-score: {...} -->` (`sync/src/parse.js`'s `MARKER`).
-
-   Where and how push mode POSTs comes from the org secrets
-   `LEADERBOARD_URL`/`LEADERBOARD_TOKEN`, read by the kit's own scoring
-   workflow (`scorer/consumer-workflow.example.yml`) — leave both unset for
-   poll mode
+   [ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-removed))
+   together with the judge's `SCORE_API`/`SCORE_TOKEN` hook and the
+   `LEADERBOARD_URL`/`LEADERBOARD_TOKEN` org secrets that addressed it. An
+   event org still holding those secrets should delete them: nothing reads
+   them, and every run a contestant's PR triggers can read them
    ([Status and upstream dependencies](operations.md#status-and-upstream-dependencies)).
-4. In poll mode, `sync`'s next tick (`sync/src/index.js`'s `tick()`) calls
+4. `sync`'s next tick (`sync/src/index.js`'s `tick()`) calls
    `fetchNewScoreComments` (`sync/src/github.js`), which fetches issue
    comments since the last cursor and **filters by comment author
    (`cfg.commentAuthor`, default `github-actions[bot]`) before anything else
@@ -168,7 +158,11 @@ state; everything else that touches scores goes through it.
    monotonic and idempotent on replay (step 7).
 6. `submitScore` (`sync/src/submit.js`) POSTs the validated payload to
    `POST /score` on `scorer` with a bearer token
-   (`Authorization: Bearer ${cfg.scorerToken}`). A `2xx` is success; a
+   (`Authorization: Bearer ${cfg.scorerToken}`), over the compose network —
+   that endpoint is reachable from inside the box and nowhere else. The
+   scorer compares the token in constant time: both sides are SHA-256'd and
+   passed to `timingSafeEqual`, so neither the token's bytes nor its length
+   are recoverable from how long a rejection takes. A `2xx` is success; a
    `4xx` is treated as a permanent rejection (dropped, logged); anything
    else throws and the poller un-marks the comment as seen so it retries
    next tick.
@@ -975,19 +969,20 @@ floor that keeps the rate inside 0..1.
   See ADR 38.
 
 **Freeze = hold ingestion, not stop execution.** Setting `paused` does not
-touch fork Actions or GitHub — PRs keep getting judged and commented on;
-poll mode's cursor just holds in place. `sync/src/index.js`'s `tick()`
+touch fork Actions or GitHub — PRs keep getting judged and commented on; the
+poller's cursor just holds in place. `sync/src/index.js`'s `tick()`
 checks `redis.isPaused()` first; while paused it skips the whole
 fetch/parse/submit loop (the per-repo cursor and ETag are untouched, so
 nothing is lost, just deferred) and still writes a `paused: true`
-heartbeat. Push mode's `scorer` checks the same key on every `POST /score`
-and returns `503` while paused (`scorer/src/serve.js`), so a contestant's
-Action gets a retryable failure instead of a silently dropped submission.
+heartbeat. The `scorer` checks the same key on every `POST /score` and
+returns `503` while paused (`scorer/src/serve.js`) — a second, independent
+reader of the flag, so a submission that reaches the writer anyway is
+refused retryably rather than written.
 Both sides **fail open** on a Redis error — a Redis blip must never freeze
 ingestion by accident (`sync/src/redis.js`'s `isPaused()` catches and
 returns `false`; `scorer/src/store.js` does the same).
 
-**The state file is repaired, never trusted.** Poll mode's cursor, seen-cache
+**The state file is repaired, never trusted.** The poller's cursor, seen-cache
 and counters live in `/state/state.json` on the `sync-state` volume
 (`sync/src/state.js`). It is JSON this service wrote, which makes its *shape*
 tempting to assume once it parses — and that was a real outage: a bare `{}` is
@@ -1154,19 +1149,15 @@ build.
   validates `author` before it's ever sent to `scorer`, because it becomes
   a Redis key segment there — the same grammar the scorer enforces on its
   own side.
-- **Oracle discipline.** Contestant-visible output (PR comment, push/poll
-  payload) is pass/fail plus points only — never failing-test names,
-  assertion messages, or exploit payloads (`docs/modules.md §6.2`).
+- **Oracle discipline.** Contestant-visible output (the PR comment and the
+  score payload inside it) is pass/fail plus points only — never failing-test
+  names, assertion messages, or exploit payloads (`docs/modules.md §6.2`).
   Verbose diagnostics stay in the private workflow log.
-- **Poll mode = zero inbound network surface.** `caddy/Caddyfile.poll` has
-  no `/score` route at all; nothing needs to reach the box from the
-  internet. `caddy/Caddyfile.push` is the only Caddyfile that exposes
-  `/score` externally, and only when the organizer opts into push mode —
-  which is now deprecated and removed in v0.7
-  ([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
-  [ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)),
-  after which the kit's only machine-to-machine inbound surface is the `ai`
-  module's signed endpoints.
+- **Zero inbound scoring surface.** The one Caddyfile has no `/score` route
+  at all, so nothing needs to reach the box from the internet for a score to
+  land: `sync` fetches comments outbound and submits them over the compose
+  network. That leaves the `ai` module's signed endpoints as the kit's only
+  machine-to-machine inbound surface.
 - **Per-event scorer image mirror.** The stock rubric ships public (ADR 18
   reversed ADR 17's private-by-default posture): the in-repo engine
   `scorer/` bakes the vendored `rubric.owasp/` unless you build with your
@@ -1181,8 +1172,8 @@ build.
   reverse-engineering the rubric out of the image is assumed possible; the
   goal is to limit who can pull it, not to make it unreadable.
 - **Monotonic, idempotent-on-replay writes.** `scorer`'s `POST /score` is
-  the single write path (`sync/src/submit.js` and push-mode Actions both
-  land on it — there is no second writer). Delivery is at-least-once: on a
+  the single write path — `sync/src/submit.js` is the only thing that calls
+  it, and there is no second writer. Delivery is at-least-once: on a
   submit failure, `sync`'s `tick()` un-marks the comment as seen and
   retries it next tick (`rs.seen = rs.seen.filter((k) => k !==
   seenKey(c.id, c.updated_at));` — the seen list is keyed on comment
@@ -1267,7 +1258,7 @@ build.
 | Shell (bats) | `setup/test/ctf_setup.bats` | `ctf-setup.sh`'s subcommands against fixture `.env` files: dry-run fork/workflow/mirror/teardown plans, secrets generation, the wizard's answers, and the `.env` reader's edge cases (trailing comments, blank values, a missing file refused rather than read as "no Secure Development") — no real `gh`/`docker` calls needed. |
 | Offline smoke | `scripts/smoke.sh` | The full poll pipeline against fixture services (`test/fixtures/mock-github.mjs`, `test/fixtures/mock-scorer.mjs`, `docker-compose.smoke.yml`): Redis and the `srh` REST proxy work, `sync` ingests fixture score comments, scores match the fixtures, a forged comment is dropped by the trust filter, an unauthenticated `POST /score` is rejected, and — the organizer admin panel's freeze proof — setting `ctf:admin:settings paused` directly on Redis (the same key the app's settings route writes) holds a queued fixture score out of the leaderboard and out of `ctf:sync:status`, then clearing it lets the poller ingest it on the next tick. This is what CI's `smoke` job runs, and needs no live GitHub org, Action runs, or scorer image access. |
 | Docker acceptance | `scripts/acceptance-app.sh` | Builds the real `apps/web/Dockerfile` **once**, with no config build-arg (there is none to pass since #386), then runs that same image three times with different runtime environments and asserts what each renders: with `GITHUB_ORG` and `SCORE_IMAGE` set, all six targets render and every fork link follows `GITHUB_ORG`, while the landing page presents Secure Development as the only default board; with `SCORE_IMAGE` empty, nothing is enabled and the landing page renders its no-boards copy pointing at `/admin`; with nothing set, `/challenges` renders bare repo names and no fork link, and the page `<title>` is the identity default "OWASP CTF" — proving identity fails open to its default rather than being read from anywhere baked. It also pins `/health`'s build stamp, which is the only thing the image still carries from build args. This is the layer that proves the runtime config flow actually reaches rendered HTML. |
-| Docker acceptance (scorer) | `scripts/acceptance-scorer.sh` | Builds the scorer image from `scorer/` with the example rubric and closes the scoring loop offline: judge runs against a fake target that passes some probes and fails others, and the script asserts the report's score-action regexes, that no probe internals leak into the comment, that the sync marker parses via the real `sync/src/parse.js`, and that push mode lands on `GET /leaderboard` with rubric-derived points/totals (poll mode — no `SCORE_API` — is exercised too). |
+| Docker acceptance (scorer) | `scripts/acceptance-scorer.sh` | Builds the scorer image from `scorer/` with the example rubric and closes the scoring loop offline: judge runs against a fake target that passes some probes and fails others, and the script asserts the report's score-action regexes, that no probe internals leak into the comment, that the sync marker parses via the real `sync/src/parse.js`, and that the marker POSTed the way `sync` does lands on `GET /leaderboard` with rubric-derived points/totals. It also pins the removal (#377): one judge run has `SCORE_API`/`SCORE_TOKEN` set and one has neither, and the two reports must be byte-identical — that environment is dead, so a leaderboard entry can only have come from the script's own POST. |
 | Docker acceptance (quiz-only) | `scripts/acceptance-quiz-only.sh` | Boots the real app image with `SCORE_IMAGE` empty and `quiz` enabled through the admin settings route (no config file exists to bind it to), seeds one question and one contestant's answer straight into Redis (no OAuth app in CI to drive real authoring/answering), and asserts against the running app: `/quiz` shows the seeded question by name, `/challenges` 404s, and `/leaderboard` shows the contestant by login with their quiz points — the one assertion a vacuously-up-but-broken app can't fake, since a quiz-only event's leaderboard source is `emptySource` and carries no rows of its own. It also asserts the DOCUMENTED bring-up structurally: `--profile app` must resolve to a line-up with no `scorer` and no `sync` (a quiz-only organizer cannot pull the private scorer image), while `--profile secdev --profile app` — what a non-empty `SCORE_IMAGE` derives — must still contain both. Separately brings `sync` up under `secdev` with no `GITHUB_ORG` and asserts it refuses at start-up, naming the key, with a non-zero exit. |
 | Docker acceptance (classic-only) | `scripts/acceptance-classic-only.sh` | The classic module's sibling of the quiz-only script, following every one of its design decisions: boots the real app image with `SCORE_IMAGE` empty and `classic` enabled at runtime, seeds a challenge and a solve straight into Redis, and asserts `/flags` shows the challenge by title, `/challenges` 404s, `/leaderboard` shows the contestant's classic points by login, and the `--profile app` line-up contains no secure-development service. Like the quiz-only script it then brings `sync` up under `secdev` with no `GITHUB_ORG` and asserts it refuses at start-up, naming the key, with a non-zero exit. |
 | Docker acceptance (ai-only) | `scripts/acceptance-ai-only.sh` | The ai module's sibling of the quiz-only/classic-only scripts, following the same design decisions: boots the real app image with `SCORE_IMAGE` empty and `ai` enabled at runtime, seeds a challenge and a contestant's solve straight into Redis, and asserts `/ai` shows the challenge by title without leaking its flag, `/ai/<id>` 200s while `/ai/<bad-id>` 404s, `/challenges`, `/flags` and `/quiz` all 404, `/leaderboard` shows the contestant's ai points by login, `GET /api/ai/launch-key` mints the keypair internally and serves its public key with no OAuth/cookie/session available, and the `--profile app` line-up contains no secure-development service. It too brings `sync` up under `secdev` with no `GITHUB_ORG` and asserts the same start-up refusal. |

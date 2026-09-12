@@ -147,7 +147,7 @@ Each of these caught a real mistake:
   `?error=application_suspended` and `sync` logged a GitHub 401 on every poll
   (#381)
 - **a key assigned twice in the env file → warns**, naming it and saying the
-  last assignment wins (a live `.env.fly` had `SCORE_INGEST` and `SCORE_IMAGE`
+  last assignment wins (a live `.env.fly` had `SCORE_IMAGE`
   twice, so editing the first line changed nothing); `init --refresh` collapses
   the duplicates of any key it rewrites
 - `init --refresh` obeys an **explicitly blank** source value for

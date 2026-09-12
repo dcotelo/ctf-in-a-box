@@ -15,8 +15,8 @@ export GITHUB_APP_ID=1 GITHUB_APP_PRIVATE_KEY="$SMOKE_APP_KEY_B64" GITHUB_APP_IN
 export GITHUB_ORG=evt-org
 # `--profile secdev` is what brings the scorer and sync up (config v2, #386:
 # the profile is the secure-development module's, derived from a non-empty
-# SCORE_IMAGE by whoever runs the real stack). The pipeline under test is
-# still poll-mode ingest — that is `SCORE_INGEST`, a different knob.
+# SCORE_IMAGE by whoever runs the real stack). The pipeline under test is the
+# poll transport, which since #377 is the only one there is.
 compose() { docker compose -f docker-compose.yml -f docker-compose.smoke.yml --profile secdev "$@"; }
 
 cleanup() { compose down -v --remove-orphans >/dev/null 2>&1 || true; }

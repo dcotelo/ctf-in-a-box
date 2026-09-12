@@ -75,9 +75,8 @@ training day.
 
 **Deployed and exercised end to end; not yet run for a real cohort.** The
 full scoring path ships in-kit — the scorer's bearer-authed `POST /score`, the
-self-contained scoring workflow for the forks, the poll transport (push is
-deprecated, see [#377](https://github.com/dcotelo/owasp-ctf/issues/377)) — and
-`scripts/smoke.sh` drives the whole poll pipeline against mocks. Beyond that,
+self-contained scoring workflow for the forks, the poll transport — and
+`scripts/smoke.sh` drives that whole pipeline against mocks. Beyond that,
 the kit runs continuously on a hosted box from the same Compose file this
 repo ships, `GET /health` reports the exact revision serving it, and an
 end-to-end pass over that live instance is where a batch of real defects were
@@ -223,15 +222,14 @@ Quiz, Classic and AI grade inside the app and bank points straight to Redis.
 Secure Development is graded *outside* the box: the contestant's fork runs a
 GitHub Action that boots the target, runs the rubric against the patch, and
 posts a machine-readable score comment on the PR. The `sync` poller pulls
-those comments (poll mode — zero inbound network surface, works behind NAT
-and venue wifi), or the Action POSTs directly (push mode — near-instant, needs
-a public URL, and **deprecated**: it is removed in v0.7, see
-[#377](https://github.com/dcotelo/owasp-ctf/issues/377)). Either way the score
+those comments — zero inbound network surface, so the box works behind NAT and
+on venue wifi (that is the only transport: push ingest was removed in v0.6,
+see [#377](https://github.com/dcotelo/owasp-ctf/issues/377)). The score
 enters through a single audited writer:
 the scorer's bearer-authed `POST /score`, which validates and writes
 monotonically — solves are never un-solved by a later failing run.
 
-<img src="docs/assets/diagrams/score-ingest-overview.svg" alt="Animated diagram. A contestant answers quiz and classic challenges in the app, and opens a patch PR against a fork in the event org. The fork's Action runs the rubric and posts a score comment on the PR. In poll mode sync pulls that comment about every 30 seconds, needing no inbound network surface; poll is the transport. The push branch, drawn faded and marked deprecated, has the Action POST the score straight to the scorer — near-instant but needing a public URL — and it is removed in v0.7 per issue 377. Either way the score enters through one audited writer, the scorer's bearer-authed POST /score, which validates and writes monotonically into redis, and the app renders the live leaderboard from it.">
+<img src="docs/assets/diagrams/score-ingest-overview.svg" alt="Animated diagram. A contestant answers quiz and classic challenges in the app, and opens a patch PR against a fork in the event org. The fork's Action runs the rubric and posts a score comment on the PR. Sync pulls that comment about every 30 seconds, needing no inbound network surface: polling is the one score transport, the push branch that once let the Action POST straight to the scorer having been removed in v0.6 per issue 377. The score enters through one audited writer, the scorer's bearer-authed POST /score, which validates and writes monotonically into redis, and the app renders the live leaderboard from it.">
 
 The full picture — components, the nine-step score data flow, the security
 model — is in [docs/architecture.md](docs/architecture.md).
@@ -300,7 +298,7 @@ Once the stack is up at your `EVENT_URL`:
   registration, set the schedule, author quiz questions, classic challenges
   and ai challenges — and when one contestant gets stuck, fix that one
   contestant rather than resetting the event.
-- **Watch the poller** with `docker compose logs -f sync` (poll mode, with
+- **Watch the poller** with `docker compose logs -f sync` (it runs with
   `secure-development` enabled). All state lives in named Docker volumes, so
   a box reboot loses nothing.
 - **When it's over**, `./setup/ctf-setup.sh teardown` archives the target
@@ -321,7 +319,7 @@ prerequisites, the score transport, OAuth setup and event config in
 - **Stock scores zero, a patch earns its points.** Every target is gated: a
   test that passes against the *unpatched* app would be a free point for every
   contestant, so the build refuses to ship it.
-- **Poll mode has zero inbound network surface.** Nothing has to reach your box
+- **Zero inbound network surface.** Nothing has to reach your box
   — it polls GitHub for score comments — so a campus network, a locked-down
   lab, or venue wifi works without a firewall change.
 
@@ -332,7 +330,7 @@ in [docs/decisions.md](docs/decisions.md).
 
 | Read this when you're… | Document |
 |---|---|
-| Standing the kit up | [docs/hosting.md](docs/hosting.md) — prerequisites, the wizard and every discrete step, the score transport (poll; push deprecated), the GitHub OAuth app, event config |
+| Standing the kit up | [docs/hosting.md](docs/hosting.md) — prerequisites, the wizard and every discrete step, how scores reach the box, the GitHub OAuth app, event config |
 | Deploying to a cloud | [docs/aws.md](docs/aws.md) (Terraform: ECS Fargate + ElastiCache + ALB) · [docs/fly.md](docs/fly.md) (one Fly machine) |
 | About to open the doors | [docs/security-checklist.md](docs/security-checklist.md) — the one-page pre-event walk |
 | Running the event | [docs/operations.md](docs/operations.md) — teams, the admin panel, the quiz/classic/ai organizer guides, verifying, teardown |

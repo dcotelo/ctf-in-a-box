@@ -225,6 +225,12 @@ ADR, not the code.
   compiler-checked. Strengthen it; never collapse it.
 - **The three `outsideWindow` copies stay separate** (ADR 32) — see
   invariant 6.
+- **Polling is the only score transport**
+  ([ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-removed)).
+  Push ingest, `SCORE_INGEST`, the second Caddyfile and the judge's
+  `SCORE_API`/`SCORE_TOKEN` hook were removed in v0.6, so a diff restoring an
+  inbound `/score` route, or a transport switch, argues against the ADR. A
+  leftover mention of the removed keys is still worth a finding.
 - **Freeze reads fail open on purpose** (ADR 32). "Fail closed for safety"
   inverts the decision; restoring fail-open where a gate accidentally
   inverted it is the fix, not the precedent.

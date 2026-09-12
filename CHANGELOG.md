@@ -19,27 +19,38 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   OAuth callback that hostname needs, previews the deploy and asks before
   running it, then hands off `fly certs add` for a custom domain. It skips
   itself with instructions when `flyctl` is missing or signed out, for an
-  app-only event, or when `SCORE_INGEST=push` (Fly is poll-only), and a
-  failed or abandoned deploy never takes the run down.
+  app-only event, and a failed or abandoned deploy never takes the run down.
 
-- **BREAKING: push score ingest is deprecated; poll is the score transport
-  (#377, [ADR 56](docs/decisions.md)).** Nothing is removed yet — a box whose
-  `.env` says `SCORE_INGEST=push` boots this release unchanged, `--profile
-  push` still brings the scorer up without a poller, and the judge's
-  `SCORE_API`/`SCORE_TOKEN` leaderboard POST still works. What changes is
-  that every place that touches it now says what it is: the wizard stops
-  asking "Score ingest" and writes `SCORE_INGEST=poll`, naming an existing
-  `push` as deprecated rather than rewriting the one switch compose reads;
-  `ctf-setup.sh doctor` warns about that value and about leftover
-  `LEADERBOARD_URL`/`LEADERBOARD_TOKEN` org secrets (fail-closed — a `gh`
-  error or an empty reply reports "not verified", never "absent"); `org`'s
-  manual checklist drops its push-secrets step; `--profile push` prints a
-  deprecation notice at bring-up; and the docs, the two score-ingest diagrams
-  and `caddy/Caddyfile.push` are marked. **In v0.7 it goes**:
-  `caddy/Caddyfile.push`, the `push` compose profile, `SCORE_INGEST` itself
-  and the judge's push hook. Move an event with an `.env` edit
-  (`SCORE_INGEST=poll`) and `--profile secdev --profile app`, then delete the
-  two org secrets — they are readable by the runs a contestant's PR triggers.
+- **BREAKING: push score ingest is removed; poll is the score transport
+  (#377, [ADR 56](docs/decisions.md)).** A fork's Action writes its score
+  comment on the PR and the `sync` poller reads it — that is now the only way
+  a secure-development score reaches the box, and there is no setting to
+  choose it. Gone: `caddy/Caddyfile.push` (compose mounts a constant
+  `caddy/Caddyfile.poll`), the `push` compose profile and its bring-up notice
+  service, the `SCORE_INGEST` key itself — from `.env.example`, the wizard,
+  `scripts/dev-stack`, `deploy/fly/deploy.sh` and both AWS task definitions —
+  the AWS module's `score_ingest` variable, the judge's
+  `SCORE_API`/`SCORE_TOKEN` leaderboard POST, and with it the
+  `<!-- ctf-score:not-recorded -->` marker that POST was the only writer of.
+  The rendered consumer workflow no longer passes those two secrets to the
+  scorer.
+
+  **Upgrading:** nothing to do for a poll event, which is every event this kit
+  has ever set up. A box whose `.env` still says `SCORE_INGEST=push` comes up
+  exactly as before — nothing reads the key — but it is now polling, and
+  `ctf-setup.sh doctor` says so once and invites you to delete the line (a
+  leftover `poll` is silent: it already agrees with the behaviour). The one
+  thing that does change under you is a hand-rolled bring-up: `docker compose
+  --profile push --profile app up` now starts the app with **no scorer and no
+  poller**, because that profile no longer exists on any service. Bring the
+  stack up with `--profile secdev --profile app` — which is what the wizard
+  and `scripts/dev-stack` have always printed for a poll event. `doctor`
+  also still reports leftover `LEADERBOARD_URL`/`LEADERBOARD_TOKEN` org
+  secrets, fail-closed — a `gh` error or an empty reply reads "not verified",
+  never "absent" — and those are worth deleting now more than before: they are
+  readable by the runs a contestant's PR triggers and authorize nothing at
+  all. Push was deprecated and removed inside the same unreleased version on
+  purpose; ADR 56 records why, under *Alternatives rejected*.
 
 - **Fixed: a Fly deploy could ship the previous event org's credentials
   without saying so (#381).** `.env.fly` and `.env` were never compared, so a

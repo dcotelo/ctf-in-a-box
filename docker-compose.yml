@@ -4,7 +4,9 @@ services:
     restart: unless-stopped
     ports: ["80:80", "443:443"]
     volumes:
-      - ./caddy/Caddyfile.${SCORE_INGEST:-poll}:/etc/caddy/Caddyfile:ro
+      # Poll is the score transport (ADR 56, issue #377): one Caddyfile, no
+      # SCORE_INGEST knob to drift from a second copy of the same answer.
+      - ./caddy/Caddyfile.poll:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
     environment:
       EVENT_HOST: ${EVENT_URL:-http://localhost}
@@ -81,12 +83,10 @@ services:
     # brings the stack up adds it iff SCORE_IMAGE is non-empty, so "does this
     # event run Secure Development" is answered once, from one key, and never
     # from a second knob — see scripts/dev-stack and
-    # deploy/fly/render-compose.sh. `push` is the score-ingest variant that
-    # needs the scorer without a poller (the fork's Action POSTs to it through
-    # caddy), so the scorer carries both. Quiz-only events pass neither.
+    # deploy/fly/render-compose.sh. Quiz-only events pass neither.
     # docs/hosting.md's "Which profiles do I need?" table is the
     # organizer-facing version of this comment.
-    profiles: ["secdev", "push"]
+    profiles: ["secdev"]
     # Set SCORE_IMAGE in .env to your own build from scorer/ (docs/scorer.md).
     # The fallback is the upstream image, which is private — it only pulls if
     # the OWASP-CTF maintainers granted you access. Kept as a fallback (not
@@ -99,37 +99,6 @@ services:
       UPSTASH_REDIS_REST_TOKEN: ${SRH_TOKEN}
       CTF_SCORE_BEARER_TOKEN: ${SCORER_TOKEN}   # requires upstream scorer bearer-auth mode
     depends_on: [srh]
-    networks: [frontend]
-
-  # The push score-ingest mode is DEPRECATED (issue #377): it is kept working
-  # for this release and REMOVED in v0.7, after which poll is the only score
-  # transport for secure-development. `--profile push` must therefore say so
-  # at bring-up, and this one-shot service is how it does: it carries the
-  # `push` profile ALONE, so it exists only in a push line-up and a poll one
-  # shows nothing extra at all.
-  #
-  # It reuses ${SCORE_IMAGE} — the image a push event has already pulled for
-  # the scorer beside it — rather than naming an image of its own: a second
-  # digest-pinned reference here would be a second pin for Dependabot to keep
-  # honest (ADR 51) and a pull a poll event would never need. It prints and
-  # exits (`restart: "no"`, so nothing brings it back); the line lands in the
-  # `up` output of a foreground bring-up and in `docker compose logs
-  # push-deprecated` after `up -d`, where the service NAME is itself visible.
-  push-deprecated:
-    profiles: ["push"]
-    image: ${SCORE_IMAGE:-ghcr.io/owasp-ctf/score:latest}
-    restart: "no"
-    command:
-      - sh
-      - -c
-      - >-
-        echo "DEPRECATED: SCORE_INGEST=push and --profile push are deprecated
-        (issue #377) and are REMOVED in v0.7. Poll is the score transport for
-        secure-development: set SCORE_INGEST=poll in .env and bring the stack
-        up with --profile secdev --profile app."
-    # Named like every other service (a service with no `networks:` key joins
-    # a third, isolated `default` network — see AGENTS.md), even though this
-    # one only ever writes to stdout.
     networks: [frontend]
 
   srh:
@@ -236,9 +205,8 @@ services:
     networks: [backend]
 
   sync:
-    # `secdev` only, never `push`: in push mode the fork's Action POSTs to the
-    # scorer directly, so there is no poller to run. Same derivation as the
-    # scorer above — the profile is added iff SCORE_IMAGE is non-empty.
+    # Same derivation as the scorer above — the profile is added iff
+    # SCORE_IMAGE is non-empty.
     profiles: ["secdev"]
     build: ./sync
     # Config v2 (#386) removed the "nothing to poll" exit 0: whether sync runs

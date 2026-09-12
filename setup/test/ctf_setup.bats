@@ -437,8 +437,8 @@ EOF
   chmod +x stubs/gh
 }
 
-@test "doctor names SCORE_INGEST=push as deprecated and still exits on the event's own merits" {
-  # SCORE_IMAGE empty on purpose: this warning is checked BEFORE the
+@test "doctor names a leftover SCORE_INGEST=push as a key nothing reads any more" {
+  # SCORE_IMAGE empty on purpose: this notice is printed BEFORE the
   # Secure-Development early return, so a box that carries the key hears about
   # it even when nothing fork-based is left to inspect.
   printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=\nSCORE_INGEST=push\n' > .env
@@ -446,13 +446,16 @@ EOF
   printf '#!/usr/bin/env bash\nexit 1\n' > stubs/gh
   chmod +x stubs/gh
   run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
-  printf '%s' "$output" | grep -qF -- 'says SCORE_INGEST=push — DEPRECATED (issue #377), REMOVED in v0.7.'
-  printf '%s' "$output" | grep -qF -- '--profile secdev --profile app'
-  # Advisory: an app-only box with every required key set is still healthy.
+  printf '%s' "$output" | grep -qF -- 'says SCORE_INGEST=push — push ingest is REMOVED (issue #377)'
+  printf '%s' "$output" | grep -qF -- 'Delete the line.'
+  # Advisory, not a defect: the key is inert now, so an app-only box with every
+  # required key set is still healthy.
   [ "$status" -eq 0 ]
 }
 
 @test "doctor says nothing about the transport when SCORE_INGEST is poll" {
+  # The value every `.env` this wizard ever wrote carries. It agrees with the
+  # behaviour exactly, so it must not put a ⚠️ on an upgraded box.
   printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=\nSCORE_INGEST=poll\n' > .env
   mkdir -p stubs
   printf '#!/usr/bin/env bash\nexit 1\n' > stubs/gh
@@ -462,33 +465,23 @@ EOF
   [ -z "$(printf '%s' "$output" | grep -F -- 'SCORE_INGEST')" ]
 }
 
-@test "doctor names an unusable SCORE_INGEST as the failed bring-up it is" {
-  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=\nSCORE_INGEST=pussh\n' > .env
-  mkdir -p stubs
-  printf '#!/usr/bin/env bash\nexit 1\n' > stubs/gh
-  chmod +x stubs/gh
-  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
-  # A value that is neither mode expands into a Caddyfile that does not exist,
-  # so the box cannot come up at all — doctor has to FAIL, not merely mention
-  # it (docs/reviewing.md: the doctor subcommand fails closed). The deprecation
-  # notice is for `push`, which still boots, so it must not appear here.
-  printf '%s' "$output" | grep -qF -- 'caddy/Caddyfile.pussh' \
-    && [ -z "$(printf '%s' "$output" | grep -F -- 'DEPRECATED')" ] \
-    && [ "$status" -ne 0 ]
-}
-
-@test "doctor rejects an unusable SCORE_INGEST even with no org and no scorer image" {
-  # The no-org return sits early in cmd_doctor, and an app-only event is the
-  # box most likely to carry a hand-edited .env — so a transport check placed
-  # after that return would never run for it, while compose would still mount
-  # ./caddy/Caddyfile.pussh and fail to start.
+@test "doctor names any other SCORE_INGEST value too, and fails on none of them" {
+  # Before #377 removed the key, a value that was neither mode expanded into
+  # caddy/Caddyfile.<that> and the bring-up failed looking for a file that did
+  # not exist — so doctor had to exit non-zero. Compose now mounts a constant
+  # Caddyfile.poll, so the same value is inert: naming it is right, failing on
+  # it would be a lie about a box that comes up fine.
   printf 'ADMIN_LOGINS=organizer\nGITHUB_ORG=\nSCORE_IMAGE=\nSCORE_INGEST=pussh\n' > .env
   mkdir -p stubs
   printf '#!/usr/bin/env bash\nexit 1\n' > stubs/gh
   chmod +x stubs/gh
   run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
-  printf '%s' "$output" | grep -qF -- 'caddy/Caddyfile.pussh' \
-    && [ "$status" -ne 0 ]
+  # No org and no scorer image on purpose: the no-org return sits early in
+  # cmd_doctor, and an app-only event is the box most likely to carry a
+  # hand-edited .env — a check placed after that return would never run for it.
+  printf '%s' "$output" | grep -qF -- 'says SCORE_INGEST=pussh'
+  [ -z "$(printf '%s' "$output" | grep -F -- 'Caddyfile.pussh')" ]
+  [ "$status" -eq 0 ]
 }
 
 @test "doctor names the push-mode org secrets that are still set" {
@@ -504,7 +497,7 @@ EOF
   printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\nGITHUB_APP_ID=42\n' > .env
   write_gh_secrets_stub "$(printf 'SOMETHING_ELSE\nANOTHER_SECRET')"
   run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
-  printf '%s' "$output" | grep -qF -- 'no deprecated push-mode org secrets (#377)'
+  printf '%s' "$output" | grep -qF -- 'no leftover push-mode org secrets (#377)'
   [ -z "$(printf '%s' "$output" | grep -F -- 'still set')" ]
 }
 
@@ -522,7 +515,7 @@ EOF
   run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
   printf '%s' "$output" | grep -qF -- 'push-mode org secrets (LEADERBOARD_URL, LEADERBOARD_TOKEN) not verified'
   printf '%s' "$output" | grep -qF -- 'admin:org scope'
-  [ -z "$(printf '%s' "$output" | grep -F -- 'no deprecated push-mode org secrets')" ]
+  [ -z "$(printf '%s' "$output" | grep -F -- 'no leftover push-mode org secrets')" ]
 }
 
 @test "doctor's push-secrets check treats an empty-but-successful list as unverified too" {
@@ -535,7 +528,7 @@ EOF
   # sync App too, and this assertion passed against the pre-#377 script on
   # that line alone.
   printf '%s' "$output" | grep -qF -- 'push-mode org secrets (LEADERBOARD_URL, LEADERBOARD_TOKEN) not verified'
-  [ -z "$(printf '%s' "$output" | grep -F -- 'no deprecated push-mode org secrets')" ]
+  [ -z "$(printf '%s' "$output" | grep -F -- 'no leftover push-mode org secrets')" ]
 }
 
 @test "doctor's push-secrets check makes no gh call under --dry-run and narrates instead" {
@@ -544,7 +537,7 @@ EOF
   printf '#!/usr/bin/env bash\necho "gh $*" >> "%s/gh.calls"\nexit 1\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/stubbin/gh"
   chmod +x "$BATS_TEST_TMPDIR/stubbin/gh"
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --dry-run
-  printf '%s' "$output" | grep -qF -- 'DRY-RUN: would check test-event-org for the deprecated push-mode secrets (LEADERBOARD_URL, LEADERBOARD_TOKEN)'
+  printf '%s' "$output" | grep -qF -- 'DRY-RUN: would check test-event-org for the removed push-mode secrets (LEADERBOARD_URL, LEADERBOARD_TOKEN)'
   [ -z "$(grep -F 'actions/secrets' "$BATS_TEST_TMPDIR/gh.calls" 2>/dev/null || true)" ]
 }
 
@@ -952,19 +945,19 @@ _stub_prereqs() {
   echo "$output" | grep -qF 'docker compose --profile secdev --profile app up -d --build'
 }
 
-@test "wizard follows .env's SCORE_INGEST when it says push, and names it deprecated" {
+@test "a stale SCORE_INGEST=push in .env no longer changes the bring-up" {
   _stub_prereqs
-  # SCORE_INGEST in .env is what compose reads (it expands into the Caddyfile
-  # mount path), so it is also what the printed bring-up must follow — there
-  # is no second copy of this switch to disagree with any more (#372/#374).
-  # It still boots this release; step 8 says what it is (#377) rather than
-  # letting the profile vanish under the organizer at v0.7.
+  # Before #377 removed push, step 8 read this value and brought up
+  # `--profile push` (the scorer with no poller). The profile is gone, so the
+  # only line-up left is the poll one, and a `.env` carried over from a push
+  # event gets it — silently, because step 8 is not where an organizer is told
+  # about a key: `doctor` names it, once.
   _env_fixture
   printf 'SCORE_INGEST=push\n' >> .env
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'docker compose --profile push --profile app up -d --build'
-  echo "$output" | grep -qF 'SCORE_INGEST=push — DEPRECATED (issue #377), REMOVED in v0.7.'
+  [ -z "$(echo "$output" | grep -F -- '--profile push')" ]
+  echo "$output" | grep -qF 'docker compose --profile secdev --profile app up -d --build'
 }
 
 # --------------------------------------------------------------------------
@@ -1019,20 +1012,12 @@ _stub_prereqs() {
   [ -z "$(echo "$output" | grep -F 'Score ingest')" ]
 }
 
-@test "valid_ingest accepts exactly poll or push, so a typo never reaches .env" {
-  # Review finding on #374: wiz_ask accepts any text, and SCORE_INGEST=pussh
-  # would have compose mount caddy/Caddyfile.pussh and fail the bring-up.
-  # The wizard re-asks until this says yes; the helper is what it asks.
-  ok() { bash -c 'CMD=__selftest source "$1"; valid_ingest "$2"' _ "$SCRIPT" "$1"; }
-  ok poll
-  ok push
-  # Rejections spelled with `if … return 1` rather than `! ok …`: a negated
-  # command that is not the test's last statement is errexit-exempt and would
-  # pass silently (AGENTS.md).
-  for bad in pussh Poll "" "poll push" "push;rm -rf /"; do
-    if ok "$bad"; then echo "accepted '$bad'"; return 1; fi
-  done
-  ok poll
+@test "valid_ingest is gone with the transport it validated" {
+  # It existed to keep a typo out of caddy/Caddyfile.${SCORE_INGEST} (#374).
+  # Compose mounts a constant Caddyfile.poll now, so there is no interpolated
+  # path to protect and no second mode to tell a typo apart from (#377).
+  run bash -c 'CMD=__selftest source "$1"; declare -F valid_ingest' _ "$SCRIPT"
+  [ "$status" -ne 0 ]
 }
 
 @test "wizard: the closing summary names every target Secure Development provisions" {
@@ -1133,43 +1118,31 @@ _basics_dry() {
 # answer to .env, which is now the ONLY copy of the switch there is, and
 # step 8 still reads it to choose the compose profile.
 #
-# Issue #377 removed the QUESTION: push ingest is deprecated (removed in
-# v0.7), so poll is the transport and the wizard writes it without asking.
-# The three cases below are what is left of the answer — a fresh file, a file
-# that says `push`, and a file that says something that is neither.
-@test "wiz_event_basics asks nothing about score ingest and writes poll" {
+# Issue #377 then removed the QUESTION (step 1) and the KEY itself (step 2):
+# poll is the only score transport, compose mounts a constant Caddyfile.poll,
+# and nothing reads SCORE_INGEST. What is left to pin is that the wizard
+# writes no such key, and does not touch a line an old `.env` still carries.
+@test "wiz_event_basics writes no SCORE_INGEST at all any more" {
   : > .env
   run _basics my-event-org alice y ''
   [ "$status" -eq 0 ]
-  # The prompt is GONE (this is the assertion that fails against the
-  # pre-#377 script, which asked and defaulted its way to the same value).
+  # The prompt went with #377 step 1; the KEY goes with step 2. This fails
+  # against both the pre-#377 script (which asked) and the step-1 one (which
+  # wrote poll without asking).
   [ -z "$(echo "$output" | grep -F 'Score ingest')" ]
-  grep -qx 'SCORE_INGEST=poll' .env
+  grep -qx 'GITHUB_ORG=my-event-org' .env
+  [ -z "$(grep -F 'SCORE_INGEST' .env)" ]
 }
 
-@test "wiz_event_basics names an existing SCORE_INGEST=push as deprecated and never rewrites it" {
-  # A box mid-event still boots on push this release, and SCORE_INGEST is the
-  # one switch compose reads — so the wizard says what is wrong and leaves the
-  # value alone rather than changing the line-up under a running event.
+@test "wiz_event_basics leaves a leftover SCORE_INGEST line exactly as it found it" {
+  # Nothing reads the key any more, so rewriting it would be a write with no
+  # effect on a file the organizer owns — and deleting a line the wizard did
+  # not put there is not the wizard's call. `doctor` is where it is named.
   printf 'SCORE_INGEST=push\n' > .env
   run _basics my-event-org alice y ''
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'DEPRECATED (issue #377)'
-  echo "$output" | grep -qF 'REMOVED in v0.7'
   grep -qx 'SCORE_INGEST=push' .env
-  [ -z "$(grep -Fx 'SCORE_INGEST=poll' .env)" ]
-}
-
-@test "wiz_event_basics names an unusable SCORE_INGEST and writes poll over it" {
-  # SCORE_INGEST becomes caddy/Caddyfile.${SCORE_INGEST} in compose, so
-  # "pussh" is a failed bring-up, not a label — and with the question gone
-  # there is nothing to re-ask, so the value is named and replaced by the one
-  # supported transport.
-  printf 'SCORE_INGEST=pussh\n' > .env
-  run _basics my-event-org alice y ''
-  [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'caddy/Caddyfile.pussh'
-  grep -qx 'SCORE_INGEST=poll' .env
+  [ -z "$(grep -F 'SCORE_INGEST=poll' .env)" ]
 }
 
 @test "wiz_event_basics never writes SCORE_INGEST for an app-only event" {
@@ -1187,7 +1160,7 @@ _basics_dry() {
   run _basics_dry
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF 'DRY-RUN: would write GITHUB_ORG, ADMIN_LOGINS and SCORE_IMAGE to .env'
-  echo "$output" | grep -qF 'would set SCORE_INGEST=poll in .env'
+  [ -z "$(echo "$output" | grep -F 'SCORE_INGEST')" ]
   # EVENT_URL is written by the same step when the answer is non-empty, so it
   # is narrated by it too — a rehearsal that lists two of three writes is a
   # rehearsal that hides one.
@@ -1967,17 +1940,20 @@ _fly_step_no_flyctl() {
   [ ! -f "$BATS_TEST_TMPDIR/deploy.calls" ]
 }
 
-@test "the fly.io step refuses a push-ingest event, naming the poll-only reason" {
+@test "the fly.io step proceeds for an .env that still carries SCORE_INGEST=push" {
   _fly_stubs
-  # Fly has no route for a fork's Action to POST /score (#373): deploy.sh
-  # refuses push outright, and walking an organizer into that refusal after
-  # the region question and the hostname is worse than saying so here.
+  # It used to refuse: Fly had no route for a fork's Action to POST /score
+  # (#373), so a push event could not deploy there. With push removed (#377)
+  # the key is inert, every Fly deploy is a poll deploy, and a stale line is
+  # no longer a reason to stop.
   printf 'SCORE_INGEST=push\n' >> .env
   run _fly_step y owasp-ctf.fly.dev y
   [ "$status" -eq 0 ]
-  echo "$output" | grep -qF 'poll-only'
-  [ ! -f .env.fly ]
-  [ ! -f "$BATS_TEST_TMPDIR/deploy.calls" ]
+  [ -z "$(echo "$output" | grep -F 'poll-only')" ]
+  [ -f .env.fly ]
+  # A real deploy call: a logged line that is neither the `init` nor a
+  # `--dry-run` rehearsal, the same shape the confirmed-deploy test pins.
+  [ -n "$(grep -v -- '--dry-run' "$BATS_TEST_TMPDIR/deploy.calls" | grep -v '^init ')" ]
 }
 
 @test "the fly.io step is not offered for an app-only event" {

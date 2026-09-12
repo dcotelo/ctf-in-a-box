@@ -304,9 +304,10 @@ jobs:
       # (7) Run the scorer. --entrypoint drives the judge path (boot app + probe).
       # docker.sock lets it boot the app under test as a sibling container; the
       # workspace + event.json mounts give it the PR checkout and webhook payload.
-      # Push-mode secrets are OPTIONAL: leave LEADERBOARD_URL/LEADERBOARD_TOKEN
-      # unset for poll mode (the engine skips the leaderboard POST and the sync
-      # poller records the comment instead).
+      # The judge posts nowhere: it writes the score comment, and the event's sync
+      # poller reads it from the PR. Push ingest, and the LEADERBOARD_URL/
+      # LEADERBOARD_TOKEN org secrets it needed, were removed in v0.6 (issue
+      # #377, ADR 56) — delete those secrets if your org still carries them.
       - name: Run scorer
         id: score
         if: steps.cooldown.outputs.skip != 'true'
@@ -330,8 +331,6 @@ jobs:
             -e GITHUB_WORKSPACE=/github/workspace \
             -e CTF_OUT_DIR=/ctf-out \
             -e GITHUB_EVENT_PATH=/github/event.json \
-            -e SCORE_API="${{ secrets.LEADERBOARD_URL }}" \
-            -e SCORE_TOKEN="${{ secrets.LEADERBOARD_TOKEN }}" \
             -e CTF_DISCLOSE_TABLE="${{ vars.CTF_DISCLOSE_TABLE }}" \
             "ghcr.io/${EVENT_ORG}/score:latest"
 

@@ -745,35 +745,29 @@ ENV
   echo "$output" | grep -qF 'SRH_CONNECTION_STRING=<redacted>'
 }
 
-@test "SCORE_INGEST=push is refused: the Fly module is poll-only" {
+@test "a leftover SCORE_INGEST line changes nothing about a deploy (#377)" {
   need_docker
   cd "$REPO"
-  # Issue #373. Compose routes POST /score to scorer:4000 through caddy; a
-  # Fly machine has no caddy and fly.toml exposes only the app on :3000, so a
-  # push deploy would have every fork's Action POST into a 404 — silently,
-  # since that step does not fail the workflow. Probed live: 404. Refusing
-  # here, in dry-run too, is the one place the mistake is cheap.
+  # This module refused SCORE_INGEST=push outright (#373): compose routed POST
+  # /score to scorer:4000 through caddy, a Fly machine has no caddy, and
+  # fly.toml exposes only the app on :3000, so a push deploy had every fork's
+  # Action POST into a 404. Push ingest is now removed everywhere (#377), the
+  # key is read by nothing, and an `.env.fly` carried over from a push event
+  # deploys like any other — the refusal would be a stop with nothing behind it.
   cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.push"
   echo "SCORE_INGEST=push" >> "$BATS_TEST_TMPDIR/env.push"
   run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.push"
-  [ "$status" -ne 0 ]
-  # Names the reason and the fix, and never reaches the deploy plan.
-  echo "$output" | grep -qF 'poll-only'
-  echo "$output" | grep -qF 'SCORE_INGEST=poll'
-  [ -z "$(echo "$output" | grep -F '== 5/5 deploy')" ]
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F 'poll-only')" ]
+  echo "$output" | grep -qF '== 5/5 deploy'
 }
 
-@test "SCORE_INGEST=poll, or unset, deploys as before" {
+@test "an env file with no SCORE_INGEST at all deploys the same way" {
   need_docker
   cd "$REPO"
-  # The fixture env has no SCORE_INGEST at all — the historical default — and
-  # an explicit poll must behave identically. Both reach the deploy plan.
+  # The fixture env has never carried the key — the shape every new `.env.fly`
+  # has now — and it must reach the same plan as the leftover-line case above.
   run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env"
-  [ "$status" -eq 0 ]
-  echo "$output" | grep -qF '== 5/5 deploy'
-  cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.poll"
-  echo "SCORE_INGEST=poll" >> "$BATS_TEST_TMPDIR/env.poll"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.poll"
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF '== 5/5 deploy'
 }
@@ -991,26 +985,26 @@ ENV
 
 @test "a duplicated key warns, and the refresh collapses it to one line (#381)" {
   cd "$REPO"
-  # The reported .env.fly defined SCORE_INGEST and SCORE_IMAGE twice. Every
-  # reader here takes the LAST assignment (so does compose), so an organizer
-  # editing the first occurrence changes nothing at all — and the old awk
-  # rewrite printed the new value once per matching line, faithfully preserving
-  # the duplication.
+  # The reported .env.fly defined SCORE_IMAGE twice (and SCORE_INGEST, a key
+  # #377 has since removed). Every reader here takes the LAST assignment (so
+  # does compose), so an organizer editing the first occurrence changes nothing
+  # at all — and the old awk rewrite printed the new value once per matching
+  # line, faithfully preserving the duplication.
   sed 's|^SCORE_IMAGE=.*|SCORE_IMAGE=ghcr.io/old-org/score:old|' \
     "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.fly.dup"
-  printf 'SCORE_IMAGE=ghcr.io/old-org/score:older\nSCORE_INGEST=poll\nSCORE_INGEST=poll\n' \
+  printf 'SCORE_IMAGE=ghcr.io/old-org/score:older\nEVENT_URL=https://owasp-ctf.fly.dev\n' \
     >> "$BATS_TEST_TMPDIR/env.fly.dup"
   run ./deploy/fly/deploy.sh init --refresh --region gru \
     --from "$BATS_TEST_TMPDIR/env" --env-file "$BATS_TEST_TMPDIR/env.fly.dup"
   # One chain: the warning names BOTH offenders and says which assignment
   # wins, and SCORE_IMAGE — the refresh-owned one — is collapsed to a single
-  # canonical line carrying the new value. SCORE_INGEST is not refresh-owned,
-  # so it is only warned about; the collapse applies to keys the refresh
-  # rewrites.
+  # canonical line carrying the new value. EVENT_URL is not refresh-owned (it
+  # belongs to this deployment), so it is only warned about; the collapse
+  # applies to keys the refresh rewrites.
   [ "$status" -eq 0 ] &&
     echo "$output" | grep -qF 'assigns these keys more than once' &&
     echo "$output" | grep -qF 'SCORE_IMAGE' &&
-    echo "$output" | grep -qF 'SCORE_INGEST' &&
+    echo "$output" | grep -qF 'EVENT_URL' &&
     echo "$output" | grep -qF 'The LAST assignment wins' &&
     grep -qx 'SCORE_IMAGE=ghcr.io/fixture-org/score:latest' "$BATS_TEST_TMPDIR/env.fly.dup" &&
     [ "$(grep -cE '^[[:space:]]*(export[[:space:]]+)?SCORE_IMAGE[[:space:]]*[:=]' "$BATS_TEST_TMPDIR/env.fly.dup")" = "1" ] &&

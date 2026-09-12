@@ -62,10 +62,7 @@ a runtime read, not a build arg:
 docker compose --profile secdev --profile app up -d
 ```
 
-(Quiz/classic/ai-only events: `--profile app` alone; a push-mode event:
-`--profile push --profile app`, since `secdev` would start the poller push
-mode has no use for — push ingest is deprecated and removed in v0.7, see
-[#377](https://github.com/dcotelo/owasp-ctf/issues/377).) Compose must also be
+(Quiz/classic/ai-only events: `--profile app` alone.) Compose must also be
 passing `ADMIN_LOGINS` through to the app service's environment — it is on
 recent `docker-compose.yml`, but a customized override file that dropped it
 would reproduce this exact symptom.
@@ -85,7 +82,7 @@ a scorer image; Quiz, Classic and AI always start **off**.
 data was never touched — solves, attempts and points come back exactly as
 they were.
 
-## A scored PR isn't landing on the leaderboard (poll mode)
+## A scored PR isn't landing on the leaderboard
 
 Work down this list — each item is a different subsystem:
 
@@ -142,7 +139,7 @@ hit it.
 
 **Symptom.** `docker compose ps` shows `sync` restarting; every tick throws.
 
-**Diagnosis.** Poll mode's cursor lives in `/state/state.json` on the
+**Diagnosis.** The poller's cursor lives in `/state/state.json` on the
 `sync-state` volume. Current `sync` validates and **repairs** a damaged
 state file field by field (each repair is logged — look for repair lines
 before assuming worse). Historically a bare `{}` — valid JSON, unusable
@@ -152,7 +149,7 @@ repair exists.
 **Fix.** Read the first error line of `docker compose logs sync`. If state
 is beyond repair on an old version: `docker compose down && docker volume rm
 <project>_sync-state && docker compose --profile secdev --profile app up -d` —
-losing the cursor is safe; poll mode re-reads scores from the PR comments
+losing the cursor is safe; the poller re-reads scores from the PR comments
 and the scorer's writes are idempotent on replay.
 
 ## A re-scored PR never updates ("it scored once and never again")

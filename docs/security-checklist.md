@@ -24,7 +24,7 @@ submitted code is the product.
 | 3 | `REDIS_PASSWORD` is set and unique | Compose refuses to start (fails closed) |
 | 4 | Org's scorer image private, forks granted Read | Scoring fails on every PR; a private rubric leaks |
 | 5 | Sync GitHub App is private and least-privilege | Third parties can install your event's App |
-| 6 | Poll mode — push is deprecated (#377) | Push exposes `/score` to the internet, and puts `LEADERBOARD_TOKEN` in org secrets contestant-triggered runs can read |
+| 6 | No leftover `LEADERBOARD_URL` / `LEADERBOARD_TOKEN` org secrets | A score-writing token sits in org secrets that contestant-triggered runs can read |
 | 7 | `admins:` lists only real organizers | `/admin` can freeze scoring and wipe the event |
 | 8 | Treat `better-auth` bumps as security changes | The login-identity denylist can regress |
 
@@ -112,24 +112,25 @@ The App's private key lives in `.env` as `GITHUB_APP_PRIVATE_KEY`. Treat that
 file as the event's secret store: it also holds the OAuth client secret and
 the scorer bearer token.
 
-## 6. Use poll mode — push is deprecated
+## 6. Delete any leftover leaderboard org secrets
 
-Poll mode has **zero inbound scoring surface** — `caddy/Caddyfile.poll` has no
-`/score` route at all, and the box needs no public URL for scoring. The poller
-reaches out to GitHub; nothing reaches in.
+Scoring has **zero inbound surface**, and that is a property of the kit rather
+than a setting to get right: the one Caddyfile has no `/score` route at all,
+so the box needs no public URL for scoring. The poller reaches out to GitHub;
+nothing reaches in.
 
-Push mode exposes `/score` through Caddy, protected by a bearer token, and it
-is **deprecated** ([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
-[ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)):
-it works this release and is removed in v0.7. The security half of that
-decision is this item — push needs `LEADERBOARD_URL`/`LEADERBOARD_TOKEN` as
-**org** Actions secrets, and org secrets are readable by the
-`pull_request_target` runs a *contestant's* pull request triggers, so the
-token that can write scores is exposed to the workflow contestants set off.
-If you are on push: keep rotating `SCORER_TOKEN` between events, move to poll
-(`SCORE_INGEST=poll`, `--profile secdev --profile app`), and delete both org
-secrets afterwards — `ctf-setup.sh doctor` reports whether they are still
-set.
+What is worth checking is what an earlier event may have left behind in the
+org. Push ingest — the fork's Action POSTing the score straight at the box —
+was removed in v0.6 ([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
+[ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-removed)),
+and it needed `LEADERBOARD_URL`/`LEADERBOARD_TOKEN` as **org** Actions
+secrets. Org secrets are readable by the `pull_request_target` runs a
+*contestant's* pull request triggers, so a leftover `LEADERBOARD_TOKEN` is a
+score-writing credential exposed to a workflow contestants set off at will —
+and nothing reads it any more, so there is no cost to removing it.
+`ctf-setup.sh doctor` reports whether either is still set. Keep rotating
+`SCORER_TOKEN` between events regardless: it is the bearer `sync` presents to
+the one writer.
 
 ## 7. Audit `ADMIN_LOGINS` before you open registration
 
@@ -207,7 +208,8 @@ Security aside, the checks that save an event, in the order to run them:
   by hand) — the password gate, if you use it, is a curtain, not a lock.
 - [ ] Confirm hint knobs (cost, minimum solves, unlock delay) are what you
   announced.
-- [ ] Poll mode: `docker compose logs -f sync` shows a clean tick.
+- [ ] Running Secure Development: `docker compose logs -f sync` shows a clean
+  tick.
 
 **During:** [operations.md](operations.md) is the panel guide;
 [troubleshooting.md](troubleshooting.md) is the symptom-first runbook —

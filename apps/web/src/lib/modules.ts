@@ -708,11 +708,12 @@ git push -u origin fix/<short-description>`,
       experience: `Contestants fork ${ctx.appList} under the ${ctx.githubOrg} GitHub org, patch a real vulnerability, and open a pull request. A GitHub Action in the fork scores the patch and the score reaches the leaderboard through the poller.`,
       steps: [
         {
-          title: "Keep the scoring transport on poll",
+          title: "Nothing to configure for the transport",
           where: "outside",
           body: [
-            { code: "SCORE_INGEST=poll" },
-            " in .env is the transport: the poller reads the score comments, and nothing has to reach this box from the internet. The push mode this key used to choose is deprecated (issue #377) and removed in v0.7. It is read by compose at start — changing it means a restart, not a rebuild. Which targets this event actually runs is chosen on this tab's Targets list, not here: a fresh event runs all six, and provisioning (",
+            "Scores arrive one way: the poller reads the score comment a fork's Action leaves on the PR, and nothing has to reach this box from the internet. The push transport and its ",
+            { code: "SCORE_INGEST" },
+            " key were removed in v0.6 (issue #377), so there is no switch here to set or to get wrong. Which targets this event actually runs is chosen on this tab's Targets list: a fresh event runs all six, and provisioning (",
             { code: "ctf-setup.sh org" },
             ") always forks and scores all six regardless of what's later switched off.",
           ],
