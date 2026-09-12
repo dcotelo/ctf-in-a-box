@@ -401,6 +401,131 @@ EOF
   [ -z "$(grep -F 'installations' "$BATS_TEST_TMPDIR/gh.calls" 2>/dev/null || true)" ]
 }
 
+# --- doctor: deprecated push ingest (issue #377) -----------------------------
+#
+# Push ingest is deprecated and REMOVED in v0.7, so doctor — where an
+# organizer looks — names what is left of it. Two independent warnings, both
+# ADVISORY (a push event still boots this release, so neither may fail the
+# exit code): the `.env` switch itself, and the two org Actions secrets the
+# push transport needs, which are read by contestant-triggered runs and have
+# nothing left to authorize once an event is off push.
+#
+# The secrets read is `gh api orgs/<org>/actions/secrets --jq
+# '.secrets[].name'`, and it follows check (c)'s fail-closed convention: a
+# non-zero exit OR an empty reply from a successful call is "not verified",
+# never "absent" — an organizer told their standing credentials are gone when
+# the API merely refused to answer is the one wrong thing to say here.
+
+# Same shape as write_gh_installations_stub: a canned gh answering exactly
+# this check's endpoint and refusing everything else, so a stray call
+# elsewhere surfaces as a loud failure rather than a silent pass.
+write_gh_secrets_stub() {  # $1 = newline-separated secret names (may be empty)
+  mkdir -p stubs
+  cat > stubs/gh <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *"orgs/test-event-org/actions/secrets"*"--jq"*)
+    printf '%s\n' "$1"
+    ;;
+  *"packages/container/score"*) echo private ;;
+  *) exit 1 ;;
+esac
+EOF
+  chmod +x stubs/gh
+}
+
+@test "doctor names SCORE_INGEST=push as deprecated and still exits on the event's own merits" {
+  # SCORE_IMAGE empty on purpose: this warning is checked BEFORE the
+  # Secure-Development early return, so a box that carries the key hears about
+  # it even when nothing fork-based is left to inspect.
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=\nSCORE_INGEST=push\n' > .env
+  mkdir -p stubs
+  printf '#!/usr/bin/env bash\nexit 1\n' > stubs/gh
+  chmod +x stubs/gh
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
+  printf '%s' "$output" | grep -qF -- 'says SCORE_INGEST=push — DEPRECATED (issue #377), REMOVED in v0.7.'
+  printf '%s' "$output" | grep -qF -- '--profile secdev --profile app'
+  # Advisory: an app-only box with every required key set is still healthy.
+  [ "$status" -eq 0 ]
+}
+
+@test "doctor says nothing about the transport when SCORE_INGEST is poll" {
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=\nSCORE_INGEST=poll\n' > .env
+  mkdir -p stubs
+  printf '#!/usr/bin/env bash\nexit 1\n' > stubs/gh
+  chmod +x stubs/gh
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
+  [ "$status" -eq 0 ]
+  [ -z "$(printf '%s' "$output" | grep -F -- 'SCORE_INGEST')" ]
+}
+
+@test "doctor names an unusable SCORE_INGEST as the failed bring-up it is" {
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=\nSCORE_INGEST=pussh\n' > .env
+  mkdir -p stubs
+  printf '#!/usr/bin/env bash\nexit 1\n' > stubs/gh
+  chmod +x stubs/gh
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
+  printf '%s' "$output" | grep -qF -- 'caddy/Caddyfile.pussh'
+  [ -z "$(printf '%s' "$output" | grep -F -- 'DEPRECATED')" ]
+}
+
+@test "doctor names the push-mode org secrets that are still set" {
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\nGITHUB_APP_ID=42\n' > .env
+  write_gh_secrets_stub "$(printf 'SOMETHING_ELSE\nLEADERBOARD_URL\nLEADERBOARD_TOKEN')"
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
+  printf '%s' "$output" | grep -qF -- 'push-mode org secrets still set: LEADERBOARD_URL LEADERBOARD_TOKEN'
+  printf '%s' "$output" | grep -qF -- '#377'
+  printf '%s' "$output" | grep -qF -- 'https://github.com/organizations/test-event-org/settings/secrets/actions'
+}
+
+@test "doctor reports no push-mode leftovers when the org's secret list has none" {
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\nGITHUB_APP_ID=42\n' > .env
+  write_gh_secrets_stub "$(printf 'SOMETHING_ELSE\nANOTHER_SECRET')"
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
+  printf '%s' "$output" | grep -qF -- 'no deprecated push-mode org secrets (#377)'
+  [ -z "$(printf '%s' "$output" | grep -F -- 'still set')" ]
+}
+
+@test "doctor's push-secrets check fails closed on a gh error: not verified, never absent" {
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\nGITHUB_APP_ID=42\n' > .env
+  mkdir -p stubs
+  cat > stubs/gh <<'EOF'
+#!/usr/bin/env bash
+case "$*" in
+  *"packages/container/score"*) echo private ;;
+  *) exit 1 ;;
+esac
+EOF
+  chmod +x stubs/gh
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
+  printf '%s' "$output" | grep -qF -- 'push-mode org secrets (LEADERBOARD_URL, LEADERBOARD_TOKEN) not verified'
+  printf '%s' "$output" | grep -qF -- 'admin:org scope'
+  [ -z "$(printf '%s' "$output" | grep -F -- 'no deprecated push-mode org secrets')" ]
+}
+
+@test "doctor's push-secrets check treats an empty-but-successful list as unverified too" {
+  # An org with zero secrets of any kind is indistinguishable here from a
+  # scope error that produced no output — same reasoning as check (c).
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\nGITHUB_APP_ID=42\n' > .env
+  write_gh_secrets_stub ""
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
+  # The whole phrase, not a bare "not verified": doctor prints that for the
+  # sync App too, and this assertion passed against the pre-#377 script on
+  # that line alone.
+  printf '%s' "$output" | grep -qF -- 'push-mode org secrets (LEADERBOARD_URL, LEADERBOARD_TOKEN) not verified'
+  [ -z "$(printf '%s' "$output" | grep -F -- 'no deprecated push-mode org secrets')" ]
+}
+
+@test "doctor's push-secrets check makes no gh call under --dry-run and narrates instead" {
+  printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\nGITHUB_APP_ID=42\n' > .env
+  mkdir -p "$BATS_TEST_TMPDIR/stubbin"
+  printf '#!/usr/bin/env bash\necho "gh $*" >> "%s/gh.calls"\nexit 1\n' "$BATS_TEST_TMPDIR" > "$BATS_TEST_TMPDIR/stubbin/gh"
+  chmod +x "$BATS_TEST_TMPDIR/stubbin/gh"
+  run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor --dry-run
+  printf '%s' "$output" | grep -qF -- 'DRY-RUN: would check test-event-org for the deprecated push-mode secrets (LEADERBOARD_URL, LEADERBOARD_TOKEN)'
+  [ -z "$(grep -F 'actions/secrets' "$BATS_TEST_TMPDIR/gh.calls" 2>/dev/null || true)" ]
+}
+
 @test "check succeeds with no .env at all (regression fix)" {
   # `check` inspects the local toolchain only — it must not demand any config
   # file to tell an organizer whether gh/docker/openssl are usable.
@@ -805,16 +930,19 @@ _stub_prereqs() {
   echo "$output" | grep -qF 'docker compose --profile secdev --profile app up -d --build'
 }
 
-@test "wizard follows .env's SCORE_INGEST when it says push" {
+@test "wizard follows .env's SCORE_INGEST when it says push, and names it deprecated" {
   _stub_prereqs
   # SCORE_INGEST in .env is what compose reads (it expands into the Caddyfile
   # mount path), so it is also what the printed bring-up must follow — there
   # is no second copy of this switch to disagree with any more (#372/#374).
+  # It still boots this release; step 8 says what it is (#377) rather than
+  # letting the profile vanish under the organizer at v0.7.
   _env_fixture
   printf 'SCORE_INGEST=push\n' >> .env
   run env PATH="$BATS_TEST_TMPDIR/stubbin:$PATH" bash "$SCRIPT" wizard --dry-run
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF 'docker compose --profile push --profile app up -d --build'
+  echo "$output" | grep -qF 'SCORE_INGEST=push — DEPRECATED (issue #377), REMOVED in v0.7.'
 }
 
 # --------------------------------------------------------------------------
@@ -982,20 +1110,43 @@ _basics_dry() {
 # produced a push label on a poll deployment with no warning. #374 sent the
 # answer to .env, which is now the ONLY copy of the switch there is, and
 # step 8 still reads it to choose the compose profile.
-@test "wiz_event_basics writes the score-ingest answer to the env file" {
+#
+# Issue #377 removed the QUESTION: push ingest is deprecated (removed in
+# v0.7), so poll is the transport and the wizard writes it without asking.
+# The three cases below are what is left of the answer — a fresh file, a file
+# that says `push`, and a file that says something that is neither.
+@test "wiz_event_basics asks nothing about score ingest and writes poll" {
   : > .env
-  run _basics my-event-org alice y push ''
+  run _basics my-event-org alice y ''
   [ "$status" -eq 0 ]
-  grep -qx 'SCORE_INGEST=push' .env
+  # The prompt is GONE (this is the assertion that fails against the
+  # pre-#377 script, which asked and defaulted its way to the same value).
+  [ -z "$(echo "$output" | grep -F 'Score ingest')" ]
+  grep -qx 'SCORE_INGEST=poll' .env
 }
 
-@test "wiz_event_basics re-asks an invalid score ingest rather than writing it" {
+@test "wiz_event_basics names an existing SCORE_INGEST=push as deprecated and never rewrites it" {
+  # A box mid-event still boots on push this release, and SCORE_INGEST is the
+  # one switch compose reads — so the wizard says what is wrong and leaves the
+  # value alone rather than changing the line-up under a running event.
+  printf 'SCORE_INGEST=push\n' > .env
+  run _basics my-event-org alice y ''
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'DEPRECATED (issue #377)'
+  echo "$output" | grep -qF 'REMOVED in v0.7'
+  grep -qx 'SCORE_INGEST=push' .env
+  [ -z "$(grep -Fx 'SCORE_INGEST=poll' .env)" ]
+}
+
+@test "wiz_event_basics names an unusable SCORE_INGEST and writes poll over it" {
   # SCORE_INGEST becomes caddy/Caddyfile.${SCORE_INGEST} in compose, so
-  # "pussh" is a failed bring-up, not a label. The re-ask falls back to the
-  # default on the (piped) empty reply that follows.
-  : > .env
-  run _basics my-event-org alice y pussh '' ''
-  echo "$output" | grep -qF "must be exactly 'poll' or 'push'"
+  # "pussh" is a failed bring-up, not a label — and with the question gone
+  # there is nothing to re-ask, so the value is named and replaced by the one
+  # supported transport.
+  printf 'SCORE_INGEST=pussh\n' > .env
+  run _basics my-event-org alice y ''
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'caddy/Caddyfile.pussh'
   grep -qx 'SCORE_INGEST=poll' .env
 }
 
@@ -1056,7 +1207,7 @@ _basics_dry() {
 
 @test "wiz_event_basics writes the three bootstrap keys and nothing else new" {
   : > .env
-  run _basics my-event-org 'alice' y poll https://ctf.example.org
+  run _basics my-event-org 'alice' y https://ctf.example.org
   [ "$status" -eq 0 ]
   grep -qx 'GITHUB_ORG=my-event-org' .env
   grep -qx 'ADMIN_LOGINS=alice' .env

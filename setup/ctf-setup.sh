@@ -406,6 +406,25 @@ cmd_doctor() {
     printf '    Add:  REDIS_PASSWORD=%s\n\n' "$(openssl rand -hex 24)"
   fi
 
+  # The score transport (issue #377). Push ingest is deprecated: it still
+  # boots this release and is REMOVED in v0.7, so a box still on it is named
+  # here — doctor is where an organizer looks — rather than finding out when
+  # the profile disappears. Advisory (no `rc=1`), like the REDIS_PASSWORD
+  # check above: this is a local .env fact, not a provisioning defect, and
+  # nothing about the event is broken today. Checked BEFORE the
+  # Secure-Development early-return below, so an event whose SCORE_IMAGE is
+  # empty but whose file still carries the key is told about it too.
+  local ingest; ingest="$(env_val SCORE_INGEST)"
+  if [ "$ingest" = push ]; then
+    printf '%s⚠️  %s says SCORE_INGEST=push — DEPRECATED (issue #377), REMOVED in v0.7.%s\n' \
+      "$C_YELLOW" "${OUT:-.env}" "$C_RESET"
+    printf '    Poll is the score transport: set SCORE_INGEST=poll and bring the stack up\n'
+    printf '    with --profile secdev --profile app (that profile carries the sync poller).\n\n'
+  elif [ -n "$ingest" ] && ! valid_ingest "$ingest"; then
+    printf '%s⚠️  %s says SCORE_INGEST=%s, which is neither poll nor push — compose mounts caddy/Caddyfile.%s and "docker compose up" fails. Set SCORE_INGEST=poll.%s\n\n' \
+      "$C_YELLOW" "${OUT:-.env}" "$ingest" "$ingest" "$C_RESET"
+  fi
+
   # No SCORE_IMAGE: this event does not run Secure Development, so there are
   # no forks, no scorer image and nothing in the per-target matrix below to
   # check — an empty table (headers only) would read as a failure rather than
@@ -460,6 +479,41 @@ cmd_doctor() {
     printf '%s✅ scorer package private%s\n' "$C_GREEN" "$C_RESET"
   else
     printf '%s⚠️  scorer package NOT private (or missing) — keep it private: https://github.com/orgs/%s/packages%s\n' "$C_YELLOW" "$org" "$C_RESET"
+  fi
+
+  # Org-level (not per-target): push-mode leftovers (issue #377). The two
+  # secrets the deprecated push transport needs are the only org Actions
+  # secrets this kit ever asked for, and they are read by runs a CONTESTANT's
+  # pull request triggers — so once an event is off push they are standing
+  # credentials with nothing left to authorize. Advisory, never `rc=1`: their
+  # presence is not a provisioning defect, and doctor's exit code gates the
+  # steps `org` can fix.
+  #
+  # FAIL CLOSED, like the sync-App check below: a non-zero `gh` exit (no
+  # admin:org scope, network, a revoked token) and an empty reply from an
+  # otherwise-successful call are both reported as NOT VERIFIED, never as
+  # "absent" — telling an organizer their token-bearing secrets are gone when
+  # the API simply refused to answer is the one wrong thing to say here.
+  echo
+  if [ "$DRY_RUN" -eq 1 ]; then
+    printf 'DRY-RUN: would check %s for the deprecated push-mode secrets (LEADERBOARD_URL, LEADERBOARD_TOKEN)\n' "$org"
+  else
+    local sec_rows sec_found="" sec
+    if sec_rows="$(gh api "orgs/$org/actions/secrets" --jq '.secrets[].name' 2>/dev/null)" && [ -n "$sec_rows" ]; then
+      for sec in LEADERBOARD_URL LEADERBOARD_TOKEN; do
+        if printf '%s\n' "$sec_rows" | grep -qx "$sec"; then sec_found="$sec_found $sec"; fi
+      done
+      if [ -n "$sec_found" ]; then
+        printf '%s⚠️  push-mode org secrets still set:%s — push ingest is DEPRECATED (#377) and REMOVED in v0.7%s\n' \
+          "$C_YELLOW" "$sec_found" "$C_RESET"
+        printf '    Delete them once this event is off push: https://github.com/organizations/%s/settings/secrets/actions\n' "$org"
+      else
+        printf '%s✅ no deprecated push-mode org secrets (#377)%s\n' "$C_GREEN" "$C_RESET"
+      fi
+    else
+      printf '%s⚠️  push-mode org secrets (LEADERBOARD_URL, LEADERBOARD_TOKEN) not verified (the token needs admin:org scope) — check by hand: https://github.com/organizations/%s/settings/secrets/actions%s\n' \
+        "$C_YELLOW" "$org" "$C_RESET"
+    fi
   fi
 
   # Check (c) — the sync GitHub App (GITHUB_APP_ID) is installed on the org
@@ -726,12 +780,17 @@ runs_secdev() {
   [ -n "$(env_val SCORE_IMAGE)" ]
 }
 
-# Exactly "poll" or "push", nothing else — the wizard re-asks until this says
-# yes. SCORE_INGEST is not just a label: docker-compose.yml expands it into
-# the Caddyfile mount path (caddy/Caddyfile.${SCORE_INGEST}), so a typo such
-# as "pussh" written to the env file fails the bring-up looking for a file
-# that does not exist, and step 8's profile choice would quietly fall back to
-# poll meanwhile. Case-sensitive on purpose: those are the two file names.
+# Exactly "poll" or "push", nothing else. SCORE_INGEST is not just a label:
+# docker-compose.yml expands it into the Caddyfile mount path
+# (caddy/Caddyfile.${SCORE_INGEST}), so a typo such as "pussh" written to the
+# env file fails the bring-up looking for a file that does not exist, and
+# step 8's profile choice would quietly fall back to poll meanwhile.
+# Case-sensitive on purpose: those are the two file names.
+#
+# `push` still counts as valid here, and only here: it is DEPRECATED (#377)
+# and removed in v0.7, so nothing writes it any more — but an env file that
+# already says it has to be told apart from a typo, by the wizard and by
+# doctor, to be named as deprecated rather than as broken.
 valid_ingest() {
   case "$1" in poll | push) return 0 ;; *) return 1 ;; esac
 }
@@ -926,7 +985,6 @@ cmd_org() {
       Do this for EVERY fork. A fork without it cannot pull the scorer, and
       doctor reports it as unverified until one of its scoring runs proves
       otherwise.
-   3. Push mode only: org Actions secrets LEADERBOARD_URL + LEADERBOARD_TOKEN.
 EOF
 }
 
@@ -1383,28 +1441,32 @@ wiz_event_basics() {
       return 1
     fi
     echo "  Secure Development provisions all six from targets.tsv: $(all_targets)."
-    # How score comments reach the leaderboard. SCORE_INGEST is not a label:
-    # docker-compose.yml expands it into the Caddyfile mount path and step 8
-    # reads it to pick profiles, so the answer is asked here and WRITTEN to
-    # the env file — the wizard used to write it to the deleted event config
-    # file only, and an organizer who answered "push" got a push label on a
-    # poll deployment with no warning (#372/#374).
+    # How score comments reach the leaderboard. There is no question here any
+    # more: push ingest is DEPRECATED (#377) and removed in v0.7, so poll is
+    # the transport and the wizard writes it. SCORE_INGEST is still not a
+    # label — docker-compose.yml expands it into the Caddyfile mount path and
+    # step 8 reads it to pick profiles (#372/#374) — which is why an existing
+    # value is inspected rather than overwritten.
     ev_ingest="$(env_val SCORE_INGEST)"
-    [ -n "$ev_ingest" ] || ev_ingest=poll
-    wiz_ask ev_ingest "Score ingest (poll | push)" "$ev_ingest"
-    # Re-ask until it is exactly one of the two: a typo becomes a Caddyfile
-    # path that does not exist and a failed bring-up. Bounded, so an
-    # exhausted stdin (EOF) cannot spin; under --dry-run the default always
-    # passes, so this never runs.
-    local tries=0
-    while [ "$DRY_RUN" -ne 1 ] && ! valid_ingest "$ev_ingest" && [ "$tries" -lt 3 ]; do
-      echo "  Score ingest must be exactly 'poll' or 'push'."
-      wiz_ask ev_ingest "Score ingest (poll | push)" poll
-      tries=$((tries + 1))
-    done
-    if ! valid_ingest "$ev_ingest"; then
-      echo "  refusing to write $out: score ingest must be exactly 'poll' or 'push'" >&2
-      return 1
+    if [ "$ev_ingest" = push ]; then
+      # Named loudly and LEFT ALONE. A box mid-event still boots on push this
+      # release, and silently rewriting the one switch compose reads would
+      # change its line-up under it — the organizer moves when they choose to.
+      echo "  ⚠️  $out says SCORE_INGEST=push — DEPRECATED (issue #377)."
+      echo "      It still boots this release and is REMOVED in v0.7; poll is the score transport."
+      echo "      To move: set SCORE_INGEST=poll in $out and bring the stack up with"
+      echo "      --profile secdev --profile app (the push profile brings up no poller)."
+      ev_ingest=""
+    elif [ -n "$ev_ingest" ] && ! valid_ingest "$ev_ingest"; then
+      # Neither mode: compose would mount caddy/Caddyfile.<that> and fail the
+      # bring-up looking for a file that does not exist. Say what is wrong,
+      # then write the only supported transport — an unusable value is not a
+      # choice to preserve.
+      echo "  ⚠️  $out says SCORE_INGEST=$ev_ingest, which is neither 'poll' nor 'push':"
+      echo "      compose mounts caddy/Caddyfile.$ev_ingest and the bring-up fails. Setting it to poll."
+      ev_ingest=poll
+    else
+      ev_ingest=poll
     fi
   fi
 
@@ -1429,6 +1491,8 @@ wiz_event_basics() {
     echo "  ✅ wrote GITHUB_ORG, ADMIN_LOGINS and SCORE_IMAGE to $out"
     # Only when Secure Development is on: without it there is no ingest to
     # configure, and writing one would suggest a switch that does nothing.
+    # Empty also covers the deprecated-push case above — that value is named
+    # and left exactly as the organizer wrote it (#377).
     if [ -n "$ev_ingest" ]; then
       set_env_var "$out" SCORE_INGEST "$ev_ingest"
       echo "  ✅ SCORE_INGEST=$ev_ingest in $out"
@@ -1680,6 +1744,10 @@ cmd_wizard() {
   # app-only event needs neither: it has nothing to poll and no scorer image
   # to pull, and asking for one would fail the bring-up outright.
   #
+  # The push branch survives because a box whose .env still says `push` must
+  # keep booting this release (#377); it is named as deprecated when it is
+  # taken, and disappears with the profile itself in v0.7.
+  #
   # No build-arg: the app reads GITHUB_ORG and ADMIN_LOGINS from the env file
   # at RUN time now (config v2, #386) — nothing is baked into the image, so
   # changing an admin is an edit and a restart, not a rebuild.
@@ -1688,6 +1756,9 @@ cmd_wizard() {
   if [ "$secdev" -eq 1 ]; then
     if [ "$(env_val SCORE_INGEST)" = "push" ]; then
       profiles=(--profile push "${profiles[@]}")
+      echo "  ⚠️  SCORE_INGEST=push — DEPRECATED (issue #377), REMOVED in v0.7."
+      echo "      Bringing the push profile up (the scorer without a poller) for now;"
+      echo "      move to poll: SCORE_INGEST=poll plus --profile secdev --profile app."
     else
       profiles=(--profile secdev "${profiles[@]}")
     fi
