@@ -500,7 +500,9 @@ ENV
   "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env.qv" --out "$out" \
     --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t
   [ -s "$out" ]
-  [ -n "$(grep -E '^  (scorer|sync):' "$out")" ]
+  # Both services, not either: a regression dropping one must not pass.
+  grep -qE '^  scorer:' "$out"
+  grep -qE '^  sync:' "$out"
 }
 
 @test "render: a spaced SCORE_IMAGE assignment still enables secdev" {
@@ -516,7 +518,9 @@ ENV
   "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env.spaced" --out "$out" \
     --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t
   [ -s "$out" ]
-  [ -n "$(grep -E '^  (scorer|sync):' "$out")" ]
+  # Both services, not either: a regression dropping one must not pass.
+  grep -qE '^  scorer:' "$out"
+  grep -qE '^  sync:' "$out"
 }
 
 @test "render: no build, networks, volumes or profiles keys survive" {
@@ -1083,7 +1087,9 @@ ENV
   "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env.colon" --out "$out" \
     --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t
   [ -s "$out" ]
-  [ -n "$(grep -E '^  (scorer|sync):' "$out")" ]
+  # Both services, not either: a regression dropping one must not pass.
+  grep -qE '^  scorer:' "$out"
+  grep -qE '^  sync:' "$out"
 }
 
 @test "deploy reads a colon-delimited .env assignment, the way compose does" {
