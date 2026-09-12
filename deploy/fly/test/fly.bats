@@ -866,6 +866,181 @@ ENV
   [ "$(sed -n 's/^ADMIN_LOGINS=//p' "$BATS_TEST_TMPDIR/env.fly.prev2" | tail -1)" = "fixture-admin" ]
 }
 
+@test "init --refresh CLEARS a pinned installation id when the source is blank (#381)" {
+  cd "$REPO"
+  # A blank GITHUB_APP_INSTALLATION_ID in .env means "let sync auto-discover
+  # the installation". The refresh used to skip every blank source value, so a
+  # pinned id belonging to a DELETED App stayed in .env.fly — and sync then
+  # logged `GitHub 401 minting installation token` for every target, every poll,
+  # forever. This is the one key whose blank is obeyed.
+  sed 's/^GITHUB_APP_INSTALLATION_ID=.*/GITHUB_APP_INSTALLATION_ID=/' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/from.blankinst"
+  sed 's/^GITHUB_APP_INSTALLATION_ID=.*/GITHUB_APP_INSTALLATION_ID=987654/' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.fly.pinned"
+  run ./deploy/fly/deploy.sh init --refresh --region gru \
+    --from "$BATS_TEST_TMPDIR/from.blankinst" --env-file "$BATS_TEST_TMPDIR/env.fly.pinned"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'GITHUB_APP_INSTALLATION_ID cleared'
+  # The line survives, empty — not deleted, and above all not still pinned.
+  grep -qx 'GITHUB_APP_INSTALLATION_ID=' "$BATS_TEST_TMPDIR/env.fly.pinned"
+  [ -z "$(grep -F '987654' "$BATS_TEST_TMPDIR/env.fly.pinned")" ]
+}
+
+@test "init --refresh does NOT clear ADMIN_LOGINS on a blank source, and warns (#381)" {
+  cd "$REPO"
+  # The asymmetry, deliberately. Obeying a blank here would lock every
+  # organizer out of /admin on a live box, and a blank in .env is far more
+  # likely to be "not filled in yet" than "deliberately unset" — so the
+  # destination value is kept and the refusal to guess is printed.
+  sed -e 's/^ADMIN_LOGINS=.*/ADMIN_LOGINS=/' \
+      -e 's/^GITHUB_ORG=.*/GITHUB_ORG=/' \
+      -e 's|^SCORE_IMAGE=.*|SCORE_IMAGE=|' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/from.blankadmins"
+  sed 's/^ADMIN_LOGINS=.*/ADMIN_LOGINS=live-admin/' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.fly.admins"
+  run ./deploy/fly/deploy.sh init --refresh --region gru \
+    --from "$BATS_TEST_TMPDIR/from.blankadmins" --env-file "$BATS_TEST_TMPDIR/env.fly.admins"
+  [ "$status" -eq 0 ]
+  # Named, not a generic "some values were skipped".
+  echo "$output" | grep -qF 'ADMIN_LOGINS blank in'
+  echo "$output" | grep -qF 'GITHUB_ORG blank in'
+  echo "$output" | grep -qF 'SCORE_IMAGE blank in'
+  # And the live values are all still there: an empty allowlist 403s everyone,
+  # an empty org stops sync, an empty SCORE_IMAGE disables Secure Development.
+  grep -qx 'GITHUB_ORG=fixture-org' "$BATS_TEST_TMPDIR/env.fly.admins"
+  grep -qx 'SCORE_IMAGE=ghcr.io/fixture-org/score:latest' "$BATS_TEST_TMPDIR/env.fly.admins"
+  grep -qx 'ADMIN_LOGINS=live-admin' "$BATS_TEST_TMPDIR/env.fly.admins"
+}
+
+@test "init --refresh reads spaced and colon-delimited source assignments (#381)" {
+  cd "$REPO"
+  # The refresh read its SOURCE with a bare `sed -n "s/^KEY=//p"` while the rest
+  # of the module had already learned compose's grammar — so `SCORE_IMAGE = x`,
+  # `GITHUB_APP_ID: 4242` and a quoted value in .env were invisible to it and
+  # silently left the OLD value in .env.fly.
+  sed -e 's|^SCORE_IMAGE=|SCORE_IMAGE = |' \
+      -e 's|^GITHUB_APP_ID=|GITHUB_APP_ID: |' \
+      -e 's|^GITHUB_ORG=\(.*\)|GITHUB_ORG="\1"|' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/from.forms"
+  sed -e 's|^SCORE_IMAGE=.*|SCORE_IMAGE=ghcr.io/old-org/score:old|' \
+      -e 's|^GITHUB_APP_ID=.*|GITHUB_APP_ID=1111|' \
+      -e 's|^GITHUB_ORG=.*|GITHUB_ORG=old-org|' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.fly.forms"
+  run ./deploy/fly/deploy.sh init --refresh --region gru \
+    --from "$BATS_TEST_TMPDIR/from.forms" --env-file "$BATS_TEST_TMPDIR/env.fly.forms"
+  [ "$status" -eq 0 ]
+  # Each arrives as the canonical KEY=value, with the padding and the quotes
+  # stripped rather than carried into the value.
+  grep -qx 'SCORE_IMAGE=ghcr.io/fixture-org/score:latest' "$BATS_TEST_TMPDIR/env.fly.forms"
+  grep -qx 'GITHUB_ORG=fixture-org' "$BATS_TEST_TMPDIR/env.fly.forms"
+  grep -qx 'GITHUB_APP_ID=1' "$BATS_TEST_TMPDIR/env.fly.forms"
+}
+
+@test "init --refresh REPLACES a spaced destination line instead of duplicating it (#381)" {
+  cd "$REPO"
+  # `grep -q "^KEY="` decided replace-vs-append, so a `.env.fly` line written
+  # as `SCORE_IMAGE = old` got a second `SCORE_IMAGE=new` appended — two
+  # assignments of one key, which is the duplicate bug this same issue reports.
+  sed -e 's|^SCORE_IMAGE=.*|SCORE_IMAGE = ghcr.io/old-org/score:old|' \
+      -e 's|^GITHUB_ORG=.*|  export GITHUB_ORG: old-org|' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.fly.spacedline"
+  run ./deploy/fly/deploy.sh init --refresh --region gru \
+    --from "$BATS_TEST_TMPDIR/env" --env-file "$BATS_TEST_TMPDIR/env.fly.spacedline"
+  [ "$status" -eq 0 ]
+  grep -qx 'SCORE_IMAGE=ghcr.io/fixture-org/score:latest' "$BATS_TEST_TMPDIR/env.fly.spacedline"
+  grep -qx 'GITHUB_ORG=fixture-org' "$BATS_TEST_TMPDIR/env.fly.spacedline"
+  # ONE assignment each afterwards, whatever form the old line took. Counted
+  # with the same grammar the script reads, `export` prefix included.
+  [ "$(grep -cE '^[[:space:]]*(export[[:space:]]+)?SCORE_IMAGE[[:space:]]*[:=]' "$BATS_TEST_TMPDIR/env.fly.spacedline")" = "1" ]
+  [ "$(grep -cE '^[[:space:]]*(export[[:space:]]+)?GITHUB_ORG[[:space:]]*[:=]' "$BATS_TEST_TMPDIR/env.fly.spacedline")" = "1" ]
+}
+
+@test "a duplicated key warns, and the refresh collapses it to one line (#381)" {
+  cd "$REPO"
+  # The reported .env.fly defined SCORE_INGEST and SCORE_IMAGE twice. Every
+  # reader here takes the LAST assignment (so does compose), so an organizer
+  # editing the first occurrence changes nothing at all — and the old awk
+  # rewrite printed the new value once per matching line, faithfully preserving
+  # the duplication.
+  sed 's|^SCORE_IMAGE=.*|SCORE_IMAGE=ghcr.io/old-org/score:old|' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.fly.dup"
+  printf 'SCORE_IMAGE=ghcr.io/old-org/score:older\nSCORE_INGEST=poll\nSCORE_INGEST=poll\n' \
+    >> "$BATS_TEST_TMPDIR/env.fly.dup"
+  run ./deploy/fly/deploy.sh init --refresh --region gru \
+    --from "$BATS_TEST_TMPDIR/env" --env-file "$BATS_TEST_TMPDIR/env.fly.dup"
+  [ "$status" -eq 0 ]
+  # Names both offenders and says which assignment wins.
+  echo "$output" | grep -qF 'assigns these keys more than once'
+  echo "$output" | grep -qF 'SCORE_IMAGE'
+  echo "$output" | grep -qF 'SCORE_INGEST'
+  echo "$output" | grep -qF 'The LAST assignment wins'
+  # SCORE_INGEST is not a refresh-owned key, so it is only warned about — the
+  # collapse applies to the key the refresh rewrites.
+  grep -qx 'SCORE_IMAGE=ghcr.io/fixture-org/score:latest' "$BATS_TEST_TMPDIR/env.fly.dup"
+  [ "$(grep -cE '^SCORE_IMAGE=' "$BATS_TEST_TMPDIR/env.fly.dup")" = "1" ]
+}
+
+@test "a deploy warns that .env.fly's credentials have drifted from .env (#381)" {
+  need_docker
+  cd "$REPO"
+  # The incident: the event org was re-created, `.env` was rewritten with a new
+  # OAuth app and a new sync App, `.env.fly` was never refreshed, and a plain
+  # deploy shipped the OLD org's credentials in silence. Every sign-in bounced
+  # with `?error=application_suspended`, sync logged `GitHub 401 minting
+  # installation token` for all six targets every 30s, and nothing in the
+  # deploy, /health or `doctor` (which reads `.env`, not `.env.fly`) said why.
+  sed -e 's|^GITHUB_APP_ID=.*|GITHUB_APP_ID=DRIFTEDAPPID999|' \
+      -e 's|^GITHUB_CLIENT_SECRET=.*|GITHUB_CLIENT_SECRET=DRIFTEDCLIENTSECRET777|' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.fly.drift"
+  run ./deploy/fly/deploy.sh --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/env.fly.drift" --from "$BATS_TEST_TMPDIR/env"
+  # WARNS, never refuses: separate OAuth apps per environment are legitimate.
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'GITHUB_APP_ID'
+  echo "$output" | grep -qF 'init --refresh'
+  # Twice: once before the multi-minute build, once in the closing summary,
+  # because the first copy is thousands of log lines up by the time it matters.
+  [ "$(echo "$output" | grep -cF 'disagree on:')" = "2" ]
+  # A drifted SECRET's value must be nowhere in the output at all.
+  [ -z "$(echo "$output" | grep -F 'DRIFTEDCLIENTSECRET777')" ]
+  # And the warning itself names keys only — never a value, for any key. Taken
+  # as a block, because GITHUB_APP_ID is not a secret and legitimately appears
+  # in the `fly secrets set` preview further down.
+  block="$(echo "$output" | awk '/disagree on:/{f=1} f{print} f && /init --refresh/{exit}')"
+  echo "$block" | grep -qF 'GITHUB_APP_ID'
+  [ -z "$(echo "$block" | grep -F 'DRIFTEDAPPID999')" ]
+}
+
+@test "no drift warning when the two env files agree, or when --from is absent (#381)" {
+  need_docker
+  cd "$REPO"
+  # A warning that always fires is one nobody reads — and a deploy from a
+  # machine that has no compose `.env` at all is normal, not a problem.
+  run ./deploy/fly/deploy.sh --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/env" --from "$BATS_TEST_TMPDIR/env"
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F 'disagree on:')" ]
+  run ./deploy/fly/deploy.sh --dry-run \
+    --env-file "$BATS_TEST_TMPDIR/env" --from "$BATS_TEST_TMPDIR/no-such-.env"
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F 'disagree on:')" ]
+}
+
+@test "the drift check runs with --skip-build too (#381)" {
+  need_docker
+  cd "$REPO"
+  # --skip-build is the flag used for exactly the change that drifts: "only a
+  # secret moved, redeploy quickly". It must not be the mode that stops looking.
+  sed 's|^GITHUB_ORG=.*|GITHUB_ORG=previous-org|' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.fly.driftorg"
+  run ./deploy/fly/deploy.sh --dry-run --skip-build \
+    --env-file "$BATS_TEST_TMPDIR/env.fly.driftorg" --from "$BATS_TEST_TMPDIR/env"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'disagree on:'
+  # Never the value, not even for a non-secret key.
+  [ -z "$(echo "$output" | grep -F 'previous-org')" ]
+}
+
 @test "deploy refuses an env file with no ADMIN_LOGINS, naming the key" {
   cd "$REPO"
   # An empty admin allowlist locks EVERYONE out of /admin, including the

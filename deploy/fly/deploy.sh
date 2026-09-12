@@ -53,6 +53,11 @@ usage: deploy/fly/deploy.sh [init] [--dry-run] [--env-file .env.fly]
           The region comes from FLY_REGION in the env file (init asks), and
           drives both volumes and `fly deploy --primary-region`.
 
+          It also WARNS — never refuses — when the env file's external
+          credentials disagree with --from (default .env): the keys that
+          differ are named, values never printed. That is the check that
+          would have caught a re-created org's .env.fly going unrefreshed.
+
 --skip-build reuses the images already in Fly's registry. Use it when only a
   secret or a runtime setting changed — it turns a multi-minute rebuild into
   a redeploy. NOT safe after changing SCORE_IMAGE: the mirror step is skipped
@@ -153,12 +158,81 @@ dotenv_value() {
   printf '%s' "$v"
 }
 
+dotenv_file_value() {
+  # $1 file, $2 key. Every form compose accepts for one assignment:
+  # `KEY = value` is legal — compose's parser trims whitespace around the key
+  # and after the `=`, and hands back `value`. Matching only `KEY=` made such
+  # a line invisible here — deploy.sh called the key empty and refused,
+  # render-compose.sh dropped secdev — while compose read it fine. `KEY: value`
+  # and a leading `export ` are accepted the same way; both were checked
+  # against `docker compose config` on a throwaway env file rather than
+  # guessed, because the whole point is to read what compose reads.
+  #
+  # LAST assignment wins, as compose does. warn_duplicate_keys says so out
+  # loud, because the first line is the one a human edits.
+  dotenv_value "$(sed -n \
+    -e "s/^[[:space:]]*export[[:space:]]\{1,\}//" \
+    -e "s/^[[:space:]]*$2[[:space:]]*[:=][[:space:]]*//p" \
+    "$1" | tail -1)"
+}
+
 env_value() {
-  # `KEY = value` is legal too: compose's parser trims whitespace around the
-  # key and after the `=`, and hands back `value`. Matching only `KEY=` made
-  # such a line invisible here — deploy.sh called the key empty and refused,
-  # render-compose.sh dropped secdev — while compose read it fine.
-  dotenv_value "$(sed -n "s/^[[:space:]]*$1[[:space:]]*[:=][[:space:]]*//p" "$ENV_FILE" | tail -1)"
+  # The env file being deployed. `--refresh` reads its SOURCE file through
+  # dotenv_file_value directly: it used to read the source with a bare
+  # `sed -n "s/^$key=//p"`, so a `SCORE_IMAGE = x`, `SCORE_IMAGE: x` or quoted
+  # value in `.env` was invisible to the refresh while compose read it fine —
+  # the same disagreement, one file to the left (#381).
+  dotenv_file_value "$ENV_FILE" "$1"
+}
+
+# The same grammar as an ERE, for the two places that ask "is there a line for
+# this key at all?" rather than "what does it say?": the refresh's
+# replace-vs-append decision and the duplicate-assignment check below.
+#
+# A presence test NARROWER than the reader is how a key ends up assigned twice.
+# `grep -q "^KEY="` answered no for a `KEY = old` line, the refresh appended
+# `KEY=new`, and the file then carried two assignments of one key with only the
+# last one live — which is exactly the shape reported in #381.
+key_line_ere() {
+  printf '^[[:space:]]*(export[[:space:]]+)?%s[[:space:]]*[:=]' "$1"
+}
+
+count_key_lines() {
+  # $1 file, $2 key. `grep -c` exits 1 on zero matches, and 2 on a missing
+  # file printing nothing at all, so neither may reach `set -e` or a `[` test
+  # as an empty string.
+  local n
+  n="$(grep -cE "$(key_line_ere "$2")" "$1" 2>/dev/null || true)"
+  printf '%s' "${n:-0}"
+}
+
+# Every key this script reads out of an env file. The duplicate check has
+# nothing useful to say about a key nobody here looks at, and listing them is
+# what lets it name the offender instead of printing a diff.
+READ_KEYS="EVENT_URL BETTER_AUTH_SECRET GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET
+SCORER_TOKEN SRH_TOKEN REDIS_PASSWORD SCORE_IMAGE SCORE_INGEST GITHUB_ORG
+ADMIN_LOGINS GITHUB_APP_ID GITHUB_APP_PRIVATE_KEY GITHUB_APP_INSTALLATION_ID
+FLY_REGION FLY_AUTO_STOP REDIS_DIR STATE_PATH"
+
+# A key assigned twice is not an error — compose takes the last one and so does
+# every reader here — but it is nearly always a mistake, and a silent one: the
+# reported `.env.fly` in #381 had SCORE_INGEST and SCORE_IMAGE defined twice,
+# so an organizer editing the first occurrence changed nothing at all.
+warn_duplicate_keys() {
+  local file="$1" key dups=""
+  [ -f "$file" ] || return 0
+  for key in $READ_KEYS; do
+    if [ "$(count_key_lines "$file" "$key")" -gt 1 ]; then
+      dups="$dups $key"
+    fi
+  done
+  [ -n "$dups" ] || return 0
+  echo "WARNING: $file assigns these keys more than once:$dups" >&2
+  echo "         The LAST assignment wins — here, in render-compose.sh and in" >&2
+  echo "         docker compose — so editing the first one changes nothing." >&2
+  echo "         Delete the extra lines. 'init --refresh' collapses the" >&2
+  echo "         duplicates of any key it rewrites into one KEY=value line." >&2
+  echo >&2
 }
 
 require() {
@@ -270,6 +344,12 @@ if [ "$CMD" = "init" ]; then
     fi
   fi
 
+  # Said once per `init`, before anything is topped up: a duplicated key makes
+  # every "already set" check below read the LAST line while the operator edits
+  # the first.
+  # (--refresh warns about both files itself, so it is not repeated here.)
+  if [ -z "$REFRESH" ]; then warn_duplicate_keys "$ENV_FILE"; fi
+
   # ---- --refresh ---------------------------------------------------------
   #
   # init deliberately never overwrites an existing env file, which means a
@@ -294,37 +374,96 @@ if [ "$CMD" = "init" ]; then
   if [ -n "$REFRESH" ]; then
     [ -f "$FROM_ENV" ] || { echo "no $FROM_ENV to refresh from" >&2; exit 1; }
     echo "== refreshing external credentials from $FROM_ENV"
+    # A duplicate in EITHER file matters here: in the source it decides which
+    # value gets copied, in the destination which one the machine ends up with.
+    warn_duplicate_keys "$FROM_ENV"
+    warn_duplicate_keys "$ENV_FILE"
+    # A BLANK source value is ASYMMETRIC, on purpose (#381).
+    #
+    # GITHUB_APP_INSTALLATION_ID is the one key whose blank means something:
+    # empty tells sync to auto-discover the installation, so after the App is
+    # re-created a PINNED id left behind in this file is not stale-but-working,
+    # it is a permanent `GitHub 401 minting installation token` on every poll.
+    # A blank source therefore CLEARS it.
+    #
+    # For every other key a blank source is far more likely to be "not filled
+    # in yet" than "deliberately unset", and obeying it would be destructive on
+    # a live box: clearing ADMIN_LOGINS locks every organizer out of /admin,
+    # clearing GITHUB_ORG stops sync from starting, clearing SCORE_IMAGE
+    # disables Secure Development. Those keep the destination value and say so.
     for key in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GITHUB_APP_ID \
                GITHUB_APP_PRIVATE_KEY GITHUB_APP_INSTALLATION_ID SCORE_IMAGE \
                GITHUB_ORG ADMIN_LOGINS; do
-      src="$(sed -n "s/^$key=//p" "$FROM_ENV" | tail -1)"
-      [ -n "$src" ] || continue
-      cur="$(sed -n "s/^$key=//p" "$ENV_FILE" | tail -1)"
-      if [ "$src" = "$cur" ]; then
+      src="$(dotenv_file_value "$FROM_ENV" "$key")"
+      cur="$(env_value "$key")"
+      if [ -z "$src" ] && [ "$key" != "GITHUB_APP_INSTALLATION_ID" ]; then
+        echo "   WARNING: $key blank in $FROM_ENV — keeping the value already in" >&2
+        echo "            $ENV_FILE (refresh cannot tell \"deliberately unset\"" >&2
+        echo "            from \"not filled in yet\")." >&2
+        continue
+      fi
+      # Collapsing a duplicated key is a change even when the live value is
+      # already right, so the rewrite runs for that too.
+      dup_count="$(count_key_lines "$ENV_FILE" "$key")"
+      if [ "$src" = "$cur" ] && [ "$dup_count" -le 1 ]; then
         echo "   $key unchanged"
         continue
       fi
       if [ -n "$DRY_RUN" ]; then
-        echo "DRY-RUN: would update $key"
+        if [ -z "$src" ]; then
+          echo "DRY-RUN: would clear $key (source is blank — sync auto-discovers)"
+        elif [ "$src" = "$cur" ]; then
+          echo "DRY-RUN: would collapse $dup_count assignments of $key into one"
+        else
+          echo "DRY-RUN: would update $key"
+        fi
         continue
       fi
       # REPLACE the line if it is there, APPEND it if it is not.
       #
-      # The awk rewrite alone only ever replaces: with no `KEY=` line to match,
-      # it copies the file through untouched and the loop still printed
+      # The awk rewrite alone only ever replaces: with no line to match, it
+      # copies the file through untouched and the loop still printed
       # "$key updated" — a lie on exactly the file that needs the most help.
       # A `.env.fly` written before config v2 (#386) has no GITHUB_ORG and no
       # ADMIN_LOGINS at all, so `--refresh` claimed to carry them over and
       # carried nothing; the deploy then ran with an empty admin allowlist
       # (nobody can open /admin) and a sync that refuses to start.
-      if grep -q "^$key=" "$ENV_FILE"; then
+      if grep -qE "$(key_line_ere "$key")" "$ENV_FILE"; then
         # Rewritten in place with awk rather than sed -i, because these values
         # contain / and + (base64) and would need escaping in a sed pattern.
-        awk -v k="$key" -v v="$src" \
-          'BEGIN{FS=OFS="="} $1==k {print k "=" v; next} {print}' \
-          "$ENV_FILE" > "$ENV_FILE.tmp" && mv "$ENV_FILE.tmp" "$ENV_FILE"
+        # The value travels through the ENVIRONMENT, not `-v`: awk expands
+        # backslash escapes in a -v assignment, so a value holding `\t` or a
+        # literal backslash arrived mangled.
+        #
+        # The FIRST matching line carries the new value in the canonical
+        # `KEY=value` form and later duplicates are dropped — normalising a
+        # line we own and are rewriting anyway. The old rewrite matched on
+        # `$1==k` with FS="=", so it both missed `KEY = value`/`KEY: value`
+        # lines and re-printed the new value once per duplicate, preserving the
+        # duplication it was handed.
+        #
+        # The temp file is created 600 BEFORE anything is written into it: it
+        # holds every credential the event has for as long as the rewrite takes.
+        : > "$ENV_FILE.tmp"
+        chmod 600 "$ENV_FILE.tmp"
+        # [ \t] rather than [[:space:]]: POSIX class support in awk is
+        # version-dependent (mawk), and this has to match on the CI runner's
+        # awk as well as macOS's. Same grammar as key_line_ere otherwise.
+        REFRESH_VALUE="$src" awk -v k="$key" \
+          -v pat="^[ \t]*(export[ \t]+)?${key}[ \t]*[:=]" '
+            BEGIN { v = ENVIRON["REFRESH_VALUE"] }
+            $0 ~ pat { if (!seen) { print k "=" v; seen = 1 } next }
+            { print }
+          ' "$ENV_FILE" > "$ENV_FILE.tmp"
+        mv "$ENV_FILE.tmp" "$ENV_FILE"
         chmod 600 "$ENV_FILE"
-        echo "   $key updated"
+        if [ -z "$src" ]; then
+          echo "   $key cleared (source is blank — sync auto-discovers)"
+        elif [ "$src" = "$cur" ]; then
+          echo "   $key collapsed to one assignment"
+        else
+          echo "   $key updated"
+        fi
       else
         printf '%s=%s\n' "$key" "$src" >> "$ENV_FILE"
         chmod 600 "$ENV_FILE"
@@ -448,6 +587,8 @@ fi
 
 echo "== app: $APP (one machine, five containers)"
 
+warn_duplicate_keys "$ENV_FILE"
+
 # ---------------------------------------------------------------------------
 # The single-volume layout has to be IN the env file (init writes it; see the
 # block in init). An env file from before that step still deploys — with redis
@@ -569,6 +710,63 @@ done
 
 # Non-empty is not the same as usable: see require_admin_logins above.
 require_admin_logins "$(env_value ADMIN_LOGINS)"
+
+# ---------------------------------------------------------------------------
+# CREDENTIAL DRIFT: does $ENV_FILE still agree with $FROM_ENV?
+#
+# Nothing compared the two files, and a plain `deploy` shipped an OLD org's
+# credentials silently (#381). The event org had been re-created — new OAuth
+# app, new sync App, new scorer image, all written to `.env` — while `.env.fly`
+# was never refreshed. Every sign-in bounced with `?error=application_suspended`
+# and sync logged `GitHub 401 minting installation token` for all six targets
+# every 30 seconds. Nothing in the deploy, in /health or in `doctor` (which
+# reads `.env`, not `.env.fly`) pointed anywhere near the cause.
+#
+# WARNS, NEVER REFUSES. Separate OAuth apps per environment — one for
+# localhost, one for the public box — are a legitimate and common setup, so a
+# refusal here would break a working deployment over a difference its owner
+# chose on purpose.
+#
+# NEVER PRINTS A VALUE, for any key. Two of these are secrets (the client
+# secret and the App private key) and the rest identify the event's org; this
+# output goes to terminals, scrollback and screen shares, which is the same
+# reasoning that made --dry-run redact (see redact_arg). Key names only.
+#
+# Runs in every deploy mode, --skip-build included, and it is printed twice:
+# once here, before the multi-minute build, so it is actionable, and again in
+# the closing summary, so it cannot scroll away behind the build log.
+# ---------------------------------------------------------------------------
+DRIFT_KEYS="GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GITHUB_APP_ID
+GITHUB_APP_PRIVATE_KEY GITHUB_APP_INSTALLATION_ID SCORE_IMAGE GITHUB_ORG
+ADMIN_LOGINS"
+DRIFTED=""
+
+# A missing --from is not an error: the file is the compose stack's, and a
+# machine that only ever deploys to Fly has no reason to carry one.
+if [ -f "$FROM_ENV" ] && [ -f "$ENV_FILE" ]; then
+  for name in $DRIFT_KEYS; do
+    if [ "$(env_value "$name")" != "$(dotenv_file_value "$FROM_ENV" "$name")" ]; then
+      DRIFTED="$DRIFTED $name"
+    fi
+  done
+fi
+
+warn_credential_drift() {
+  [ -n "$DRIFTED" ] || return 0
+  echo "WARNING: $ENV_FILE and $FROM_ENV disagree on:$DRIFTED" >&2
+  echo "         (Key names only — no value is printed, ever.)" >&2
+  echo "         These are the keys that must match an EXTERNAL system: the" >&2
+  echo "         OAuth app, the sync App, the scorer image, the fork org and" >&2
+  echo "         its admin allowlist. A stale copy deploys the PREVIOUS" >&2
+  echo "         event's identity, and says nothing: sign-in bounces with" >&2
+  echo "         ?error=application_suspended and sync logs a GitHub 401" >&2
+  echo "         minting installation token on every poll (#381)." >&2
+  echo "         Per-environment OAuth apps are legitimate, so this is a" >&2
+  echo "         warning, not a refusal. If it is NOT deliberate:" >&2
+  echo "           ./deploy/fly/deploy.sh init --refresh --from $FROM_ENV --env-file $ENV_FILE" >&2
+  echo >&2
+}
+warn_credential_drift
 
 SRH_TOKEN="$(env_value SRH_TOKEN)"
 REDIS_PASSWORD="$(env_value REDIS_PASSWORD)"
@@ -1002,3 +1200,8 @@ cat <<EOF
      then set EVENT_URL to it, update the OAuth callback, and redeploy
      (BETTER_AUTH_URL is a secret, and the cookie's Secure flag follows it).
 EOF
+
+# Said again, last: the copy printed before the build is thousands of lines up
+# by now, and a drifted credential is invisible until an organizer tries to
+# sign in.
+warn_credential_drift
