@@ -477,6 +477,20 @@ EOF
     && [ "$status" -ne 0 ]
 }
 
+@test "doctor rejects an unusable SCORE_INGEST even with no org and no scorer image" {
+  # The no-org return sits early in cmd_doctor, and an app-only event is the
+  # box most likely to carry a hand-edited .env — so a transport check placed
+  # after that return would never run for it, while compose would still mount
+  # ./caddy/Caddyfile.pussh and fail to start.
+  printf 'ADMIN_LOGINS=organizer\nGITHUB_ORG=\nSCORE_IMAGE=\nSCORE_INGEST=pussh\n' > .env
+  mkdir -p stubs
+  printf '#!/usr/bin/env bash\nexit 1\n' > stubs/gh
+  chmod +x stubs/gh
+  run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
+  printf '%s' "$output" | grep -qF -- 'caddy/Caddyfile.pussh' \
+    && [ "$status" -ne 0 ]
+}
+
 @test "doctor names the push-mode org secrets that are still set" {
   printf 'GITHUB_ORG=test-event-org\nADMIN_LOGINS=organizer\nSCORE_IMAGE=ghcr.io/fixture/score:latest\nGITHUB_APP_ID=42\n' > .env
   write_gh_secrets_stub "$(printf 'SOMETHING_ELSE\nLEADERBOARD_URL\nLEADERBOARD_TOKEN')"

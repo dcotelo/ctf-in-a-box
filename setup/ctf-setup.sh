@@ -383,16 +383,6 @@ cmd_doctor() {
   fi
   echo
 
-  # Nothing org-scoped left to inspect without an org: SD-on already failed
-  # loudly above; SD-off simply has nothing further to check here.
-  [ -n "$org" ] || return $rc
-
-  if gh_ok "orgs/$org"; then
-    printf '%s✅ org %s%s\n\n' "$C_GREEN" "$org" "$C_RESET"
-  else
-    printf '%s⚠️  org %s — create it: https://github.com/account/organizations/new%s\n\n' "$C_YELLOW" "$org" "$C_RESET"
-  fi
-
   # Redis now requires a password, and docker-compose.yml uses `${REDIS_PASSWORD:?}`
   # — so an .env written before this change does not bring up a weaker stack,
   # it fails to bring up at all. Checked HERE because doctor is where an
@@ -411,9 +401,13 @@ cmd_doctor() {
   # here — doctor is where an organizer looks — rather than finding out when
   # the profile disappears. Advisory (no `rc=1`), like the REDIS_PASSWORD
   # check above: this is a local .env fact, not a provisioning defect, and
-  # nothing about the event is broken today. Checked BEFORE the
-  # Secure-Development early-return below, so an event whose SCORE_IMAGE is
-  # empty but whose file still carries the key is told about it too.
+  # nothing about the event is broken today.
+  #
+  # Both of these local-.env checks run BEFORE the no-org return below, and
+  # that placement is the point: an app-only event has no GITHUB_ORG, so
+  # anything after that return is invisible to exactly the box most likely to
+  # carry a hand-edited `.env`. An unusable SCORE_INGEST there still makes
+  # compose mount a Caddyfile that does not exist.
   local ingest; ingest="$(env_val SCORE_INGEST)"
   if [ "$ingest" = push ]; then
     printf '%s⚠️  %s says SCORE_INGEST=push — DEPRECATED (issue #377), REMOVED in v0.7.%s\n' \
@@ -429,6 +423,16 @@ cmd_doctor() {
     # cannot boot is the fail-open shape docs/reviewing.md forbids.
     rc=1
   fi
+  # Nothing org-scoped left to inspect without an org: SD-on already failed
+  # loudly above; SD-off simply has nothing further to check here.
+  [ -n "$org" ] || return $rc
+
+  if gh_ok "orgs/$org"; then
+    printf '%s✅ org %s%s\n\n' "$C_GREEN" "$org" "$C_RESET"
+  else
+    printf '%s⚠️  org %s — create it: https://github.com/account/organizations/new%s\n\n' "$C_YELLOW" "$org" "$C_RESET"
+  fi
+
 
   # No SCORE_IMAGE: this event does not run Secure Development, so there are
   # no forks, no scorer image and nothing in the per-target matrix below to
