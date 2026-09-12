@@ -42,6 +42,15 @@ export const SECURE_AGENT_PLAYBOOK_URL = "https://github.com/OWASP/secure-agent-
  *  serves `docs/<name>.md` at `<DOCS_URL><name>`, extensionless. */
 export const DOCS_URL = "https://dcotelo.github.io/owasp-ctf/";
 
+/** The branch every provisioned target repo scores from — `ctf-setup.sh`'s
+ *  `ctf-branch` step creates it and `drop-old` deletes `master`/`main`, so a
+ *  PR against `main` has no base branch to land on. Written down once here so
+ *  the How to Play / FAQ / Terms copy below can't drift from it again
+ *  (issue #379); `ctf-setup.sh` has no equivalent named constant of its own
+ *  (it compares the literal string), so this is the only place the value is
+ *  written down on the app side. */
+export const SCORING_BRANCH = "ctf";
+
 /** A run of contestant-facing copy that needs a little inline markup.
  *
  *  The registry holds copy, not JSX (it must stay importable either side of
@@ -349,7 +358,7 @@ const REGISTRY: Record<ModuleId, ModuleDef> = {
         },
         {
           title: "Patch it and open a PR",
-          body: "Fix the vulnerability in your fork, then submit a pull request against the repo's main branch. This is secure development, not flag hunting.",
+          body: `Fix the vulnerability in your fork, then submit a pull request against the repo's ${SCORING_BRANCH} branch. This is secure development, not flag hunting.`,
         },
         {
           title: "Get scored automatically",
@@ -413,7 +422,7 @@ const REGISTRY: Record<ModuleId, ModuleDef> = {
         },
         {
           title: "Patch it and open a pull request",
-          body: `Fork the target's repo under the ${ctx.githubOrg} org, fix the vulnerability on a branch in your fork, and open a PR back against the repo's main branch. This is secure development practice, not flag hunting. The fix itself is the deliverable.`,
+          body: `Fork the target's repo under the ${ctx.githubOrg} org, fix the vulnerability on a branch in your fork, and open a PR back against the repo's ${SCORING_BRANCH} branch. This is secure development practice, not flag hunting. The fix itself is the deliverable.`,
         },
         {
           title: "Get scored automatically",
@@ -482,15 +491,15 @@ git commit -m "Fix SQL injection in login route with bind parameters"
 git push -u origin fix/login-sql-injection`,
                 },
                 {
-                  title: "Open the PR against main",
-                  body: `The base repo is ${ctx.githubOrg}/juice-shop and the base branch is main. The scorer only watches that branch. The GitHub web UI's “Compare & pull request” button works too; just check the base branch.`,
-                  code: `gh pr create --repo ${ctx.githubOrg}/juice-shop --base main \\
+                  title: "Open the PR against ctf",
+                  body: `The base repo is ${ctx.githubOrg}/juice-shop and the base branch is ${SCORING_BRANCH}. The scorer only watches that branch. The GitHub web UI's “Compare & pull request” button works too; just check the base branch.`,
+                  code: `gh pr create --repo ${ctx.githubOrg}/juice-shop --base ${SCORING_BRANCH} \\
   --title "Fix SQL injection in login route" \\
   --body "Replaced string-interpolated SQL with bind parameters."`,
                 },
                 {
                   title: "Watch the scorer do its thing",
-                  body: "The ctf-score Action builds your patched app, boots it in a sandbox, and runs the challenge regression suite against it. When it finishes you'll get a “🏁 Score recorded” comment on the PR, and your points appear on the leaderboard and your profile moments later.",
+                  body: "The ctf-score Action builds your patched app, boots it in a sandbox, and runs the challenge regression suite against it. When it finishes you'll get a “🏆 CTF Patch Score” comment on the PR, and your points appear on the leaderboard and your profile moments later.",
                 },
               ],
               bonus: {
@@ -537,15 +546,15 @@ git commit -m "Fix <vulnerability> in <component>"
 git push -u origin fix/<short-description>`,
                 },
                 {
-                  title: "Open the PR against main",
-                  body: `The base repo is the target's fork under ${ctx.githubOrg} and the base branch is main. The scorer only watches that branch. The GitHub web UI's “Compare & pull request” button works too; just check the base branch.`,
-                  code: `gh pr create --repo ${ctx.githubOrg}/<target> --base main \\
+                  title: "Open the PR against ctf",
+                  body: `The base repo is the target's fork under ${ctx.githubOrg} and the base branch is ${SCORING_BRANCH}. The scorer only watches that branch. The GitHub web UI's “Compare & pull request” button works too; just check the base branch.`,
+                  code: `gh pr create --repo ${ctx.githubOrg}/<target> --base ${SCORING_BRANCH} \\
   --title "Fix <vulnerability>" \\
   --body "Describe the fix and the vulnerability it closes."`,
                 },
                 {
                   title: "Watch the scorer do its thing",
-                  body: "The ctf-score Action builds your patched app, boots it in a sandbox, and runs the challenge regression suite against it. When it finishes you'll get a “🏁 Score recorded” comment on the PR, and your points appear on the leaderboard and your profile moments later.",
+                  body: "The ctf-score Action builds your patched app, boots it in a sandbox, and runs the challenge regression suite against it. When it finishes you'll get a “🏆 CTF Patch Score” comment on the PR, and your points appear on the leaderboard and your profile moments later.",
                 },
               ],
               bonus: {
@@ -620,7 +629,7 @@ git push -u origin fix/<short-description>`,
           q: "How do I submit a solution?",
           a: [
             `There's no flag to type in. Fork the target's repo under the ${ctx.githubOrg} org, fix the vulnerability on a branch in your fork, and open a pull request against the repo's `,
-            { code: "main" },
+            { code: SCORING_BRANCH },
             " branch. That's the only branch the scorer watches, and there is no per-challenge branch. A GitHub Action builds your app, runs the rubric, and posts your score on the PR, usually in two to five minutes. See ",
             { route: { href: "/how-to-play", label: "How to Play" } },
             " for a worked example.",
@@ -675,7 +684,7 @@ git push -u origin fix/<short-description>`,
         "Automated mass-submission, or spamming pull requests to farm scoring runs, will get your account rate-limited or disqualified.",
       ],
       submissions: [
-        "You submit work as a pull request against the target repository's main branch. Those repositories are OWASP projects under their own existing open-source licenses, and your contribution is offered under the license of the repository you are contributing to.",
+        `You submit work as a pull request against the target repository's ${SCORING_BRANCH} branch. Those repositories are OWASP projects under their own existing open-source licenses, and your contribution is offered under the license of the repository you are contributing to.`,
         "Submit your own work. Using AI tooling to find and fix vulnerabilities is expected and encouraged here (see the Rules), but passing off another contestant's patch as yours is not.",
         "Don't publish full solutions or patches for others to copy while the event is running. Afterwards, write up whatever you like.",
         "Organizers may reference or showcase submitted patches when talking about the event.",

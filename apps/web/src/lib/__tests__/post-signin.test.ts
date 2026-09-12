@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   POST_SIGNIN_PATH,
   TEAM_SETUP_PATH,
+  oauthErrorCallbackURL,
   postSigninCallbackURL,
   resolvePostSigninTarget,
   sanitizeNext,
@@ -44,6 +45,19 @@ describe("sanitizeNext", () => {
     ["/quiz\t"],
   ])("falls back to /profile for %j", (raw) => {
     expect(sanitizeNext(raw as string | null | undefined)).toBe("/profile");
+  });
+});
+
+describe("oauthErrorCallbackURL", () => {
+  it("encodes a valid local destination as ?next= on the landing page", () => {
+    expect(oauthErrorCallbackURL("/challenges")).toBe("/?next=%2Fchallenges");
+  });
+
+  it("sanitizes the destination the same way the return trip does — never a bare pass-through", () => {
+    // Same shape of proof sanitizeNext's own suite runs: a protocol-relative
+    // or absolute destination must not survive into the encoded URL.
+    expect(oauthErrorCallbackURL("//evil.example")).toBe("/?next=%2Fprofile");
+    expect(oauthErrorCallbackURL("https://evil.example")).toBe("/?next=%2Fprofile");
   });
 });
 

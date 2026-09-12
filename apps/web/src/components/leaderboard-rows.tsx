@@ -12,6 +12,7 @@ import ModuleDetail from "@/components/module-detail";
 import AppBreakdown from "@/components/app-breakdown";
 import BoardItemLists from "@/components/board-item-lists";
 import { Avatar, RankChip } from "@/components/leaderboard-chrome";
+import { fillStyle } from "@/components/progress/progress-bar";
 import type { LeaderboardData, LeaderboardEntry } from "@/lib/leaderboard/types";
 
 function LegacyBreakdown({ entry }: { entry: LeaderboardEntry }) {
@@ -120,7 +121,7 @@ export function EntryRow({
             <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-[#2563eb] to-[#14b8a6]"
-                style={{ width: `${topPoints > 0 ? (entry.points / topPoints) * 100 : 0}%` }}
+                style={fillStyle(topPoints > 0 ? (entry.points / topPoints) * 100 : 0, entry.points)}
               />
             </div>
           </div>

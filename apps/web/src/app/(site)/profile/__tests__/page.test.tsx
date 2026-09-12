@@ -93,6 +93,7 @@ import ProfilePage from "@/app/(site)/profile/page";
 import { withHintPenalties } from "@/lib/leaderboard/hint-penalties";
 import { withModuleContributions } from "@/lib/leaderboard/module-contributions";
 import type { LeaderboardData, LeaderboardEntry } from "@/lib/leaderboard/types";
+import { MIN_FILL_PX } from "@/components/progress/progress-bar";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -294,6 +295,32 @@ describe("profile team panel member rows", () => {
     // find would fall back to.
     expect(html).toContain("Team progress");
     expect(html).toContain(">77<");
+  });
+});
+
+describe("profile header progress fill", () => {
+  it("gives a tiny nonzero score a visible minimum fill — 2 of 3,943 pts is under 0.2%, a fraction of a device pixel unfloored", async () => {
+    isModuleEnabled.mockImplementation((id: string) => id === "secure-development");
+    getSession.mockResolvedValue({ user: { login: "ada", image: null } });
+    getUser.mockResolvedValue({ ...baseProfile, points: 2, maxPoints: 3943 });
+    getViewerHints.mockResolvedValue({ purchased: {}, spent: 0, count: 0 });
+    getHintPenalties.mockResolvedValue(new Map());
+
+    const html = renderToStaticMarkup(await ProfilePage());
+
+    expect(html).toContain("2 of");
+    expect(html).toContain(`min-width:${MIN_FILL_PX}px`);
+  });
+
+  it("gives an all-zero score no minimum fill", async () => {
+    isModuleEnabled.mockReturnValue(false);
+    getSession.mockResolvedValue({ user: { login: "ada", image: null } });
+    getUser.mockResolvedValue({ ...baseProfile, points: 0, patched: 0, total: 0, maxPoints: 0 });
+    getViewerHints.mockResolvedValue({ purchased: {}, spent: 0, count: 0 });
+
+    const html = renderToStaticMarkup(await ProfilePage());
+
+    expect(html).not.toContain(`min-width:${MIN_FILL_PX}px`);
   });
 });
 

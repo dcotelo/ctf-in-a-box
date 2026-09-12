@@ -38,6 +38,19 @@ export function sanitizeNext(raw: string | null | undefined): string {
   return raw;
 }
 
+/** Where a FAILED OAuth callback re-lands: the landing page, carrying the
+ *  destination the sign-in call was headed for as `?next=` (issue #380
+ *  follow-up — `HeroCta` and `JoinTeamInvite` each pass a distinct local
+ *  destination through `postSigninCallbackURL`, and a plain `errorCallbackURL:
+ *  "/"` lost it on failure). Sanitized with the SAME rule as the return trip
+ *  (`sanitizeNext`) before being encoded: this value comes back through an
+ *  attacker-influenceable query string exactly like that one does, so the
+ *  reader (page.tsx) validates it again on the way back in rather than
+ *  trusting that it only ever contains what this function wrote. */
+export function oauthErrorCallbackURL(next: string): string {
+  return `/?next=${encodeURIComponent(sanitizeNext(next))}`;
+}
+
 /**
  * Where a just-signed-in visitor actually goes.
  *

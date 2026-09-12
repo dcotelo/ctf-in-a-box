@@ -42,6 +42,18 @@ export function fillPercent(value: number, ceiling: number): number {
   return Math.min(100, (value / ceiling) * 100);
 }
 
+/** The one place the width/min-width pair is assembled, so every hand-rolled
+ *  fill (profile header, progress-summary, challenge-grid, the leaderboard
+ *  rows) draws the same rule this component does rather than reinventing it
+ *  without the floor. `pct` is whatever percentage the caller already
+ *  computed (points-based here, sometimes item-count-based elsewhere); `value`
+ *  is the raw numerator that percentage came from — a nonzero score under
+ *  ~0.2% of a wide bar rounds to a fraction of a device pixel and paints
+ *  nothing without this floor. */
+export function fillStyle(pct: number, value: number): { width: string; minWidth: number } {
+  return { width: `${pct}%`, minWidth: value > 0 ? MIN_FILL_PX : 0 };
+}
+
 export default function ProgressBar({
   label,
   done,
@@ -83,7 +95,7 @@ export default function ProgressBar({
     >
       <div
         className="h-full rounded-full bg-gradient-to-r from-[#2563eb] to-[#14b8a6]"
-        style={{ width: `${pct}%`, minWidth: value > 0 ? MIN_FILL_PX : 0 }}
+        style={fillStyle(pct, value)}
       />
     </div>
   );

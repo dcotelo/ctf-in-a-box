@@ -8,7 +8,7 @@
 // exactly what a contestant's browser gets.
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import ProgressBar, { MIN_FILL_PX, barReading, fillPercent } from "@/components/progress/progress-bar";
+import ProgressBar, { MIN_FILL_PX, barReading, fillPercent, fillStyle } from "@/components/progress/progress-bar";
 
 describe("barReading", () => {
   it("reads points when the source has them", () => {
@@ -38,6 +38,21 @@ describe("fillPercent", () => {
   it("is 0 for an empty or absent ceiling instead of NaN or Infinity", () => {
     expect(fillPercent(5, 0)).toBe(0);
     expect(fillPercent(0, 100)).toBe(0);
+  });
+});
+
+describe("fillStyle", () => {
+  it("gives a zero value no minimum width", () => {
+    expect(fillStyle(0, 0)).toEqual({ width: "0%", minWidth: 0 });
+  });
+
+  it("floors a nonzero value's sliver at MIN_FILL_PX, however small the percentage", () => {
+    // 2 of 3,943 pts is 0.05% — a fraction of a device pixel unfloored.
+    expect(fillStyle(0.05, 2)).toEqual({ width: "0.05%", minWidth: MIN_FILL_PX });
+  });
+
+  it("reports the full width at 100, still with the floor since the value is nonzero", () => {
+    expect(fillStyle(100, 200)).toEqual({ width: "100%", minWidth: MIN_FILL_PX });
   });
 });
 

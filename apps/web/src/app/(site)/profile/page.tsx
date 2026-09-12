@@ -14,6 +14,7 @@ import ProgressRow, { moduleUnit } from "@/components/progress/progress-row";
 import ChallengeList from "@/components/progress/challenge-list";
 import RemainingLine from "@/components/progress/remaining-line";
 import { maxPointsAcrossModules } from "@/app/(site)/profile/module-blocks";
+import { fillStyle } from "@/components/progress/progress-bar";
 import ProfileStatTiles, { type StatTile } from "@/components/profile-stat-tiles";
 import { loadTeamStanding } from "@/app/(site)/profile/team-standing";
 import {
@@ -230,6 +231,7 @@ export default async function ProfilePage() {
     profile,
     appsRecord,
     challengeCount,
+    enabledMaxPoints: enabledTotals.maxPoints,
     secureDev: secureDevEnabled,
     quiz: quizEnabled ? { total: quizTotal, questions: quizQuestions, maxPoints: quizMaxPoints, viewer: viewerQuiz } : undefined,
     classic: classicEnabled
@@ -251,6 +253,10 @@ export default async function ProfilePage() {
       : challengeCount > 0
         ? (patchedCount / challengeCount) * 100
         : 0;
+  // Whichever numerator actually drove progressPct above — points when the
+  // bar has point data, the patched count when it fell back — so the fill
+  // floor triggers exactly when there is genuine nonzero progress to show.
+  const progressValue = maxPointsAllModules > 0 ? netPoints : patchedCount;
 
   const moduleProgress = buildModuleProgress(moduleInput);
   // `ModuleDetail`/`AppBreakdown` (the same renderers the leaderboard uses)
@@ -327,7 +333,7 @@ export default async function ProfilePage() {
           <div className="mt-3 h-1.5 w-full max-w-md overflow-hidden rounded-full bg-white/[0.06]">
             <div
               className="h-full rounded-full bg-gradient-to-r from-[#2563eb] to-[#14b8a6]"
-              style={{ width: `${progressPct}%` }}
+              style={fillStyle(progressPct, progressValue)}
             />
           </div>
           {/* The bar says WHAT it measures — an unlabeled bar reads as

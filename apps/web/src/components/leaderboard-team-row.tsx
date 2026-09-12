@@ -14,6 +14,7 @@ import AppBreakdown from "@/components/app-breakdown";
 import BoardItemLists from "@/components/board-item-lists";
 import ProgressRow, { moduleUnit } from "@/components/progress/progress-row";
 import { Avatar, RankChip } from "@/components/leaderboard-chrome";
+import { fillStyle } from "@/components/progress/progress-bar";
 import type { LeaderboardEntry, ModuleProgress, TeamStanding } from "@/lib/leaderboard/types";
 
 
@@ -95,7 +96,7 @@ export function TeamRow({ team, topPoints, pointsByLogin, isOpen, onToggle, modu
             <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-white/[0.06]">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-[#2563eb] to-[#14b8a6]"
-                style={{ width: `${topPoints > 0 ? (team.points / topPoints) * 100 : 0}%` }}
+                style={fillStyle(topPoints > 0 ? (team.points / topPoints) * 100 : 0, team.points)}
               />
             </div>
           </div>

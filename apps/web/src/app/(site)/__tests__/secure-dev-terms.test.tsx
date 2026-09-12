@@ -143,3 +143,28 @@ describe("the secure-development term list", () => {
     expect("This event runs on OWASP CTF: one machine, one free GitHub org.").not.toMatch(org);
   });
 });
+
+// issue #379: every provisioned target's default (and only scoring) branch is
+// `ctf` — ctf-setup.sh's `ctf-branch` step creates it and `drop-old` deletes
+// `master`/`main` — but the How to Play worked example, the FAQ, and Terms
+// all told contestants to open their PR against `main`, which no longer
+// exists on any provisioned repo.
+describe("the scoring branch is ctf, not main", () => {
+  it("the worked example's gh CLI commands target --base ctf, never --base main", () => {
+    expect(markup).toContain("--base ctf");
+    expect(markup).not.toContain("--base main");
+  });
+
+  it("no page tells a contestant the base/scoring branch is main", () => {
+    expect(markup).not.toContain("base branch is main");
+    expect(markup).not.toContain("repo's main branch");
+    expect(markup).not.toContain("target repository's main branch");
+  });
+
+  // The two "score recorded" promises (How to Play's worked examples) must
+  // name the ctf-score.yml workflow's ACTUAL heading, not an invented one.
+  it("the score-comment promise matches the workflow's real heading", () => {
+    expect(markup).toContain("CTF Patch Score");
+    expect(markup).not.toContain("Score recorded");
+  });
+});

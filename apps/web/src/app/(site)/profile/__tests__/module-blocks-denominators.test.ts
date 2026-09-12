@@ -47,6 +47,7 @@ const input = {
   profile: { points: BANKED_POINTS, maxPoints: 500 },
   appsRecord: {},
   challengeCount: 5,
+  enabledMaxPoints: 500,
   secureDev: true,
   quiz: { questions: LIVE, maxPoints: 500, viewer: { answered: SOLVED, attempts: {} } },
   classic: { challenges: LIVE, maxPoints: 500, viewer: { solved: SOLVED, attempts: {} } },

@@ -10,7 +10,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
-import { postSigninCallbackURL } from "@/lib/post-signin";
+import { oauthErrorCallbackURL, postSigninCallbackURL } from "@/lib/post-signin";
 
 export default function JoinTeamInvite({
   code,
@@ -43,6 +43,12 @@ export default function JoinTeamInvite({
           authClient.signIn.social({
             provider: "github",
             callbackURL: postSigninCallbackURL(`/join/${encodeURIComponent(code)}`),
+            // Points a failed callback at the landing page's error banner
+            // rather than better-auth's default `/error` route, which this
+            // app has no page for (issue #380), carrying THIS invite's own
+            // destination through as `?next=` so a failed retry still offers
+            // to come back here rather than /profile (issue #380 follow-up).
+            errorCallbackURL: oauthErrorCallbackURL(`/join/${encodeURIComponent(code)}`),
           })
         }
         className="rounded-md border border-white/10 bg-white/[0.03] px-4 py-2 font-mono text-sm text-zinc-200 transition-colors hover:border-[#2563eb]/45 hover:text-white"

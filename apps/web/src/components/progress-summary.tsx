@@ -8,6 +8,8 @@
 // Presentational and client-safe: no data reads, no state — callers own the
 // numbers (and their denominators' clamping rules).
 
+import { fillStyle } from "@/components/progress/progress-bar";
+
 export default function ProgressSummary({
   label,
   done,
@@ -46,7 +48,7 @@ export default function ProgressSummary({
       <div aria-hidden className="h-1.5 min-w-24 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
         <div
           className="h-full rounded-full bg-gradient-to-r from-[#2563eb] to-[#14b8a6]"
-          style={{ width: `${pct}%` }}
+          style={fillStyle(pct, done)}
         />
       </div>
     </div>
