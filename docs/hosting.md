@@ -110,6 +110,37 @@ exception is a hand-rolled `.env` with no `SCORE_IMAGE` line at all: that
 question has never been put, so the wizard asks step 3 again rather than
 assuming an answer.
 
+**The wizard closes by offering an optional fly.io deploy** (issue #371).
+After step 9 has verified the box, it asks *"Deploy to fly.io now?"* —
+**default no**, so a run that only wants the local stack ends exactly as it
+did before. Say yes and it:
+
+1. runs `deploy/fly/deploy.sh init --from .env`, which asks which Fly region
+   to run in and writes `.env.fly`;
+2. asks for the public hostname and writes it as `EVENT_URL` **in `.env.fly`
+   only** — `.env` keeps the compose box's URL, because one event served from
+   a box and from Fly has two hostnames (ADR 43);
+3. prints the OAuth callback that hostname needs
+   (`https://<hostname>/api/auth/callback/github`). Step 6 registered the
+   callback for `.env`'s URL, and GitHub matches the callback host exactly, so
+   the Fly deployment needs either that OAuth app repointed at it or a second
+   OAuth app of its own, whose client id/secret go in `.env.fly`;
+4. previews the deploy with `deploy.sh --dry-run` and asks for confirmation
+   before running the real one;
+5. hands off `fly certs add <hostname> --app <app>` when the hostname is a
+   custom domain rather than `*.fly.dev`, and `fly ips list` for the case
+   where a deploy reports success but the box is unreachable.
+
+The step skips itself, saying why, whenever it cannot work: no `flyctl` on
+`PATH` or no Fly session (it prints the install or `fly auth login`
+instruction and moves on), an app-only event (the Fly machine runs the scorer
+and poller too, so `deploy.sh` requires `SCORE_IMAGE`), or `SCORE_INGEST=push`
+(Fly is poll-only — one machine, no route for a fork's Action to POST
+`/score`). A failed or abandoned deploy is never fatal: everything the nine
+steps wrote to `.env` stays, and the step names the command to re-run. Under
+`--dry-run` it is narrated and calls nothing. The module itself, and what runs
+on the machine, is [docs/fly.md](fly.md).
+
 The rest of this section is the same sequence as explicit commands, for when
 you'd rather drive it yourself or script it. Each step is either a
 `ctf-setup.sh` command or a **UI-only** step GitHub forces you through by hand

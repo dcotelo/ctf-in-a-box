@@ -8,6 +8,20 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Added: the setup wizard offers an optional fly.io deploy as its closing
+  step (#371).** It used to end at the local `docker compose` bring-up,
+  leaving an organizer to find `deploy/fly/deploy.sh init --from .env`, the
+  hostname and the second OAuth callback out of
+  [docs/fly.md](docs/fly.md) for themselves. It now asks *"Deploy to fly.io
+  now?"* — default **no**, so a run that only wants the box is unchanged —
+  and on yes prepares `.env.fly`, writes the public hostname there as
+  `EVENT_URL` (never into `.env`, which stays the compose box's), prints the
+  OAuth callback that hostname needs, previews the deploy and asks before
+  running it, then hands off `fly certs add` for a custom domain. It skips
+  itself with instructions when `flyctl` is missing or signed out, for an
+  app-only event, or when `SCORE_INGEST=push` (Fly is poll-only), and a
+  failed or abandoned deploy never takes the run down.
+
 - **BREAKING: push score ingest is deprecated; poll is the score transport
   (#377, [ADR 56](docs/decisions.md)).** Nothing is removed yet — a box whose
   `.env` says `SCORE_INGEST=push` boots this release unchanged, `--profile

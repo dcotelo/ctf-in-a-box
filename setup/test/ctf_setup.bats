@@ -1763,3 +1763,275 @@ EOF
   [ "$status" -ne 0 ]
   [ ! -e "$BATS_TEST_TMPDIR/elsewhere/target.env" ]
 }
+
+# --------------------------------------------------------------------------
+# The optional fly.io deploy step (issue #371). Driven directly, like
+# `wiz_event_basics` above: reaching it through the whole wizard means
+# answering the GitHub-App and OAuth prompts first, and what matters here is
+# the step's own behaviour. Its CALL SITE — last, after 9/9, and neither
+# blocking nor calling anything under --dry-run — is pinned by the two
+# walk-through tests at the end of this section.
+# --------------------------------------------------------------------------
+
+# flyctl and deploy.sh, stubbed and LOGGED. `fly` records every call and exits
+# ${1:-0} (1 is the signed-out shape, which is what `fly auth whoami` returns
+# with no session). CTF_FLY_DEPLOY points the step at a stand-in for
+# deploy/fly/deploy.sh that mimics `init` by creating the --env-file it is
+# told to write: the real script requires a Fly session and renders
+# compose.fly.yml into the repo, neither of which belongs in a unit test.
+_fly_stubs() {
+  mkdir -p "$BATS_TEST_TMPDIR/flybin"
+  cat > "$BATS_TEST_TMPDIR/flybin/fly" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >> "$BATS_TEST_TMPDIR/fly.calls"
+exit ${1:-0}
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/flybin/fly"
+  cat > "$BATS_TEST_TMPDIR/deploy-stub" <<EOF
+#!/bin/sh
+printf '%s\n' "\$*" >> "$BATS_TEST_TMPDIR/deploy.calls"
+mode=deploy
+envf=""
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    init) mode=init ;;
+    --env-file) envf="\$2"; shift ;;
+  esac
+  shift
+done
+if [ "\$mode" = init ] && [ -n "\$envf" ]; then
+  printf 'SCORE_IMAGE=ghcr.io/fixture/score:latest\nEVENT_URL=https://owasp-ctf.fly.dev\n' > "\$envf"
+  chmod 600 "\$envf"
+fi
+exit \${DEPLOY_STUB_EXIT:-0}
+EOF
+  chmod +x "$BATS_TEST_TMPDIR/deploy-stub"
+}
+
+# The step, with answers piped in prompt order: the offer, then (on yes) the
+# public hostname and the confirmation before the real deploy.
+_fly_step() {
+  printf '%s\n' "$@" | env PATH="$BATS_TEST_TMPDIR/flybin:$PATH" \
+    CTF_FLY_DEPLOY="$BATS_TEST_TMPDIR/deploy-stub" \
+    bash -c 'CMD=__selftest source "$1"; DRY_RUN=0; OUT=.env; wiz_fly_deploy .env' _ "$SCRIPT"
+}
+
+# The same step on a box with NO flyctl. The PATH is standard directories
+# only, so a real flyctl on the developer's machine cannot answer for the
+# stub — the whole point of the case is that `command -v fly` finds nothing.
+_fly_step_no_flyctl() {
+  printf '%s\n' "$@" | env PATH="/usr/bin:/bin" \
+    CTF_FLY_DEPLOY="$BATS_TEST_TMPDIR/deploy-stub" \
+    bash -c 'CMD=__selftest source "$1"; DRY_RUN=0; OUT=.env; wiz_fly_deploy .env' _ "$SCRIPT"
+}
+
+@test "the fly.io step is offered, and the default answer declines it" {
+  _fly_stubs
+  # Enter — the default is NO, so a run that only wants the local box ends
+  # exactly as it did before this step existed: no .env.fly, no deploy.
+  run _fly_step ''
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'Optional  Deploy to fly.io'
+  echo "$output" | grep -qF 'Deploy to fly.io now? [y/N]'
+  echo "$output" | grep -qF 'Skipped — nothing above is affected.'
+  [ ! -f .env.fly ]
+  [ ! -f "$BATS_TEST_TMPDIR/deploy.calls" ]
+}
+
+@test "the fly.io step writes the public hostname into .env.fly, never into .env" {
+  _fly_stubs
+  # .env is the COMPOSE box's file, and it carries the box's own EVENT_URL:
+  # one event served from a box and from Fly has two hostnames (ADR 43), so a
+  # step that wrote the Fly one here would break the box's own sign-in.
+  printf 'EVENT_URL=http://localhost:3000\n' >> .env
+  run _fly_step y ctf.example.org n
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'EVENT_URL=https://ctf.example.org in'
+  grep -qx 'EVENT_URL=http://localhost:3000' .env
+  # …and the Fly file keeps mode 600: it is a copy of every secret the event
+  # has, and rewriting a key through mktemp+mv drops the mode `init` set.
+  [ "$(ls -l .env.fly | cut -c1-10)" = "-rw-------" ]
+  grep -qx 'EVENT_URL=https://ctf.example.org' .env.fly
+}
+
+@test "the fly.io step prints the OAuth callback the new hostname needs, naming the box's too" {
+  _fly_stubs
+  printf 'EVENT_URL=http://localhost:3000\n' >> .env
+  run _fly_step y ctf.example.org n
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'https://ctf.example.org/api/auth/callback/github'
+  # The wizard's own OAuth step (6/9) registered the callback for .env's URL,
+  # which is not this one — an organizer who is not told that discovers it as
+  # a redirect_uri mismatch on a deployment that otherwise looks fine.
+  echo "$output" | grep -qF "http://localhost:3000, the compose box's URL"
+  echo "$output" | grep -qF 'redirect_uri mismatch'
+}
+
+@test "the fly.io step previews the deploy and asks before running the real one" {
+  _fly_stubs
+  run _fly_step y owasp-ctf.fly.dev n
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'Deploy that to fly.io now'
+  echo "$output" | grep -qF 'Not deployed.'
+  grep -qF -- '--dry-run' "$BATS_TEST_TMPDIR/deploy.calls"
+  # The real deploy is that same command WITHOUT --dry-run. Declining must
+  # leave the log with nothing in it but the init and the preview.
+  [ -z "$(grep -v -- '--dry-run' "$BATS_TEST_TMPDIR/deploy.calls" | grep -v '^init ')" ]
+}
+
+@test "the fly.io step runs the deploy once it is confirmed" {
+  _fly_stubs
+  run _fly_step y owasp-ctf.fly.dev y
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'deployed'
+  [ -n "$(grep -v -- '--dry-run' "$BATS_TEST_TMPDIR/deploy.calls" | grep -v '^init ')" ]
+}
+
+@test "a custom-domain hostname ends on the fly certs add hand-off" {
+  _fly_stubs
+  run _fly_step y ctf.example.org n
+  [ "$status" -eq 0 ]
+  # The app name comes from deploy/fly/fly.toml — the machine, its
+  # certificates and its IPs are all named after it.
+  echo "$output" | grep -qF 'fly certs add ctf.example.org --app owasp-ctf'
+}
+
+@test "a *.fly.dev hostname needs no certificate, and is not offered one" {
+  _fly_stubs
+  run _fly_step y owasp-ctf.fly.dev n
+  [ "$status" -eq 0 ]
+  # Fly issues the certificate for its own hostnames; the hand-off here would
+  # send an organizer off to do nothing. The unreachable-box note stays: Fly's
+  # IP allocation has failed mid-deploy before.
+  echo "$output" | grep -qF 'fly ips list --app owasp-ctf'
+  [ -z "$(echo "$output" | grep -F 'certs add')" ]
+}
+
+@test "a URL pasted instead of a hostname is reduced to the host" {
+  _fly_stubs
+  run _fly_step y 'https://ctf.example.org/' n
+  [ "$status" -eq 0 ]
+  grep -qx 'EVENT_URL=https://ctf.example.org' .env.fly
+}
+
+@test "a hostname that is not one leaves EVENT_URL as init wrote it" {
+  _fly_stubs
+  run _fly_step y 'not a hostname' n
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'is not a hostname'
+  grep -qx 'EVENT_URL=https://owasp-ctf.fly.dev' .env.fly
+  # No deploy on a guess.
+  [ -z "$(grep -v '^init ' "$BATS_TEST_TMPDIR/deploy.calls")" ]
+}
+
+@test "a hostname with an empty or hyphen-edged label is refused too" {
+  # Each of these passes the eye and the old check — LDH characters only, no
+  # leading or trailing dot, at least one dot — and none of them can resolve.
+  # They would have reached .env.fly as EVENT_URL, and Fly would have served
+  # them as BETTER_AUTH_URL and as the OAuth callback host.
+  local bad fails=""
+  for bad in 'foo..example.org' '-foo.example.org' 'foo-.example.org' \
+             'foo.-example.org' 'foo.example.org-'; do
+    _fly_stubs
+    run _fly_step y "$bad" n
+    if [ -z "$(echo "$output" | grep -F 'is not a hostname')" ]; then
+      fails="$fails $bad"
+    fi
+    if [ -n "$(grep -F "EVENT_URL=https://$bad" .env.fly)" ]; then
+      fails="$fails $bad(written)"
+    fi
+    rm -f .env.fly "$BATS_TEST_TMPDIR/deploy.calls"
+  done
+  # Names the offenders rather than failing on an opaque status, and is the
+  # test's LAST statement so a bad result actually fails it (AGENTS.md).
+  [ -z "$fails" ] || { echo "accepted:$fails"; false; }
+}
+
+@test "a missing flyctl skips the fly.io step with the install instruction" {
+  _fly_stubs
+  run _fly_step_no_flyctl y
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'no flyctl on PATH'
+  echo "$output" | grep -qF 'https://fly.io/docs/flyctl/install/'
+  [ ! -f .env.fly ]
+  [ ! -f "$BATS_TEST_TMPDIR/deploy.calls" ]
+}
+
+@test "an unauthenticated flyctl skips the fly.io step with the login instruction" {
+  _fly_stubs 1
+  run _fly_step y
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'flyctl is not signed in'
+  echo "$output" | grep -qF 'fly auth login'
+  [ ! -f .env.fly ]
+  [ ! -f "$BATS_TEST_TMPDIR/deploy.calls" ]
+}
+
+@test "the fly.io step refuses a push-ingest event, naming the poll-only reason" {
+  _fly_stubs
+  # Fly has no route for a fork's Action to POST /score (#373): deploy.sh
+  # refuses push outright, and walking an organizer into that refusal after
+  # the region question and the hostname is worse than saying so here.
+  printf 'SCORE_INGEST=push\n' >> .env
+  run _fly_step y owasp-ctf.fly.dev y
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'poll-only'
+  [ ! -f .env.fly ]
+  [ ! -f "$BATS_TEST_TMPDIR/deploy.calls" ]
+}
+
+@test "the fly.io step is not offered for an app-only event" {
+  _fly_stubs
+  # The Fly machine runs all five containers, scorer included, so deploy.sh
+  # requires SCORE_IMAGE — an app-only event has nothing to hand it.
+  _env_fixture_no_secdev
+  run _fly_step y owasp-ctf.fly.dev y
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'SCORE_IMAGE'
+  echo "$output" | grep -qF 'app-only'
+  [ ! -f .env.fly ]
+  [ ! -f "$BATS_TEST_TMPDIR/deploy.calls" ]
+}
+
+@test "a failed deploy.sh init is non-fatal and says what to re-run" {
+  _fly_stubs
+  # The nine steps' .env work is already done, so a Fly deploy that falls
+  # over must not take the run down with it.
+  run env DEPLOY_STUB_EXIT=1 PATH="$BATS_TEST_TMPDIR/flybin:$PATH" \
+    CTF_FLY_DEPLOY="$BATS_TEST_TMPDIR/deploy-stub" \
+    bash -c 'printf "y\n" | { CMD=__selftest source "$1"; DRY_RUN=0; OUT=.env; wiz_fly_deploy .env; }' _ "$SCRIPT"
+  echo "$output" | grep -qF "'deploy.sh init' failed"
+  echo "$output" | grep -qF 'init --from'
+  [ "$status" -eq 0 ]
+}
+
+@test "wizard --dry-run narrates the optional fly.io step and calls nothing at all" {
+  _stub_prereqs
+  _fly_stubs
+  run env PATH="$BATS_TEST_TMPDIR/flybin:$BATS_TEST_TMPDIR/stubbin:$PATH" \
+    CTF_FLY_DEPLOY="$BATS_TEST_TMPDIR/deploy-stub" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'Optional  Deploy to fly.io'
+  echo "$output" | grep -qF "DRY-RUN: would ask 'Deploy to fly.io now?'"
+  echo "$output" | grep -qF 'EVENT_URL in .env.fly (never in .env)'
+  [ ! -f .env.fly ]
+  # Not even the "is flyctl usable" probe: --dry-run narrates this step
+  # without calling flyctl, docker or gh at all (AGENTS.md).
+  [ ! -f "$BATS_TEST_TMPDIR/deploy.calls" ]
+  [ ! -f "$BATS_TEST_TMPDIR/fly.calls" ]
+}
+
+@test "the fly.io offer comes LAST, after the 9/9 verify step" {
+  _stub_prereqs
+  _fly_stubs
+  # It is a second deployment of an event the nine steps have already
+  # configured, not a tenth thing to do before the box works — so the nine
+  # keep their numbering and this follows them.
+  run env PATH="$BATS_TEST_TMPDIR/flybin:$BATS_TEST_TMPDIR/stubbin:$PATH" \
+    CTF_FLY_DEPLOY="$BATS_TEST_TMPDIR/deploy-stub" bash "$SCRIPT" wizard --dry-run
+  [ "$status" -eq 0 ]
+  verify_at="$(echo "$output" | grep -n '9/9  Verify' | head -1 | cut -d: -f1)"
+  fly_at="$(echo "$output" | grep -n 'Optional  Deploy to fly.io' | head -1 | cut -d: -f1)"
+  [ -n "$verify_at" ] && [ -n "$fly_at" ]
+  [ "$verify_at" -lt "$fly_at" ]
+}

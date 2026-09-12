@@ -8,6 +8,7 @@
 #             App/OAuth credentials) with instructions + URLs,
 #             writing them as you go — no editing files by hand between steps.
 #             Guides + verifies each UI-only step. Resumable (safe to re-run).
+#             Ends by OFFERING an optional fly.io deploy (default no).
 #             Orchestrates the subcommands below.
 #   check     verify local prerequisites (gh auth, docker, compose)
 #   secrets   generate .env secret values
@@ -1514,6 +1515,222 @@ wiz_event_basics() {
   WIZ_SCORE_IMAGE="$ev_score"
 }
 
+# The optional step after the nine: put this same event on fly.io (issue #371).
+#
+# The nine steps stand up a LOCAL box — $1 is its bootstrap file and step 8
+# brings compose up against it. Fly is a SECOND deployment of the same event,
+# on a different hostname, with its own env file: that is why
+# `deploy/fly/deploy.sh init` copies $1 to .env.fly and rewrites EVENT_URL
+# there rather than sharing one file (ADR 43, and `env_url`'s comment). An
+# organizer used to have to discover that whole sequence — init, the hostname,
+# the second OAuth callback, the certificate — out of docs/fly.md; this offers
+# it inline instead.
+#
+# Default NO, and non-fatal in EVERY direction. Answering no, having no
+# flyctl, or abandoning the deploy half-way must all leave the run exactly as
+# the nine steps left it, so every path here returns 0 naming the command to
+# re-run and the caller adds `|| true`. Nothing in this step writes to $1: the
+# public hostname belongs to the Fly deployment, and writing it into the
+# compose box's EVENT_URL would break the box's own sign-in.
+#
+# Self-contained by design (one function, one call site). CTF_FLY_DEPLOY
+# overrides the script it runs — the seam the bats suite drives it through,
+# because the real deploy.sh renders compose.fly.yml into the repo and a test
+# must not.
+wiz_fly_deploy() {
+  local from="$1" repo_root deploy fly_toml app from_abs fly_env host local_url valid
+  wiz_step "Optional  Deploy to fly.io"
+
+  # --dry-run makes zero flyctl/docker/gh calls (AGENTS.md), so even the "is
+  # flyctl installed and signed in" probe is narrated rather than run.
+  if [ "$DRY_RUN" -eq 1 ]; then
+    echo "  DRY-RUN: would ask 'Deploy to fly.io now?' (default no, so a rehearsal declines) and, on yes:"
+    echo "  DRY-RUN:   check flyctl is installed and signed in, then run deploy/fly/deploy.sh init --from $from"
+    echo "  DRY-RUN:   ask for the public hostname and write it as EVENT_URL in .env.fly (never in $from)"
+    echo "  DRY-RUN:   print the OAuth callback that hostname needs, preview the deploy and ask before running it"
+    return 0
+  fi
+
+  repo_root="$(cd "$SCRIPT_DIR/.." && pwd)"
+  deploy="${CTF_FLY_DEPLOY:-$repo_root/deploy/fly/deploy.sh}"
+  fly_toml="$repo_root/deploy/fly/fly.toml"
+
+  # Every refusal below names what is missing before it returns: a silent skip
+  # here reads as "the kit cannot deploy to Fly" rather than "this box is not
+  # ready to".
+  if [ ! -f "$from" ]; then
+    echo "  ⏭  skipped — no $from to deploy from."
+    return 0
+  fi
+  if [ ! -x "$deploy" ]; then
+    echo "  ⏭  skipped — $deploy is missing or not executable (see docs/fly.md)."
+    return 0
+  fi
+  # deploy.sh requires SCORE_IMAGE: the Fly machine runs all five containers,
+  # scorer and sync included, so an app-only event has nothing to hand it.
+  if ! runs_secdev; then
+    echo "  ⏭  skipped — the Fly module deploys the scorer and poller too, so it requires"
+    echo "     SCORE_IMAGE, and this event has none (app-only). See docs/fly.md."
+    return 0
+  fi
+  # Fly is POLL-ONLY (#373): fly.toml's only ingress is the app's port 3000,
+  # so a fork's Action POSTing to /score gets the app's 404 and nothing says a
+  # score was lost. deploy.sh refuses push outright; say why here rather than
+  # walking an organizer into that refusal.
+  if [ "$(env_val SCORE_INGEST)" = "push" ]; then
+    echo "  ⏭  skipped — $from has SCORE_INGEST=push and the Fly module is poll-only (#373):"
+    echo "     one machine, no route for a fork's Action to POST /score, so scores would"
+    echo "     be silently lost. Set SCORE_INGEST=poll in $from to deploy there."
+    return 0
+  fi
+  # The app name is fly.toml's, never a second copy: it is what the machine,
+  # its certificates and its IPs are all named after.
+  app="$(sed -n 's/^[[:space:]]*app[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$fly_toml" 2>/dev/null | tail -1)"
+  if [ -z "$app" ]; then
+    echo "  ⏭  skipped — cannot read the Fly app name from $fly_toml."
+    return 0
+  fi
+  # flyctl may be absent or signed out. Both are a SKIP with the instruction,
+  # never a failure: the nine steps above are done and the wizard must end
+  # cleanly (the whole step is optional).
+  if ! command -v fly >/dev/null 2>&1; then
+    echo "  ⏭  no flyctl on PATH — install it (https://fly.io/docs/flyctl/install/), then run:"
+    echo "     $deploy init --from $from"
+    return 0
+  fi
+  if ! fly auth whoami >/dev/null 2>&1; then
+    echo "  ⏭  flyctl is not signed in — run 'fly auth login', then:"
+    echo "     $deploy init --from $from"
+    return 0
+  fi
+
+  echo "  One Fly machine runs the same five containers compose does (docs/fly.md)."
+  echo "  It is a SEPARATE deployment on its own hostname: its settings go in .env.fly,"
+  echo "  and $from stays the compose box's."
+  if ! ask_yn "  Deploy to fly.io now?" N; then
+    echo "  Skipped — nothing above is affected. Deploy whenever you like:"
+    echo "     $deploy init --from $from"
+    echo "     $deploy"
+    return 0
+  fi
+
+  # Absolute, because deploy.sh cd's to the repo root: a relative --from would
+  # resolve against THAT directory and quietly read a different .env.
+  from_abs="$from"
+  case "$from_abs" in
+    /*) ;;
+    *) from_abs="$(cd "$(dirname "$from")" && pwd)/$(basename "$from")" ;;
+  esac
+  fly_env="$(dirname "$from_abs")/.env.fly"
+
+  echo
+  echo "  1/4  preparing $fly_env (deploy.sh init asks which Fly region to run in)"
+  if ! "$deploy" init --from "$from_abs" --env-file "$fly_env"; then
+    echo "  ⚠️  'deploy.sh init' failed — nothing was deployed and $from is untouched." >&2
+    echo "     Fix the error above, then re-run:" >&2
+    echo "     $deploy init --from $from_abs --env-file $fly_env" >&2
+    return 0
+  fi
+  if [ ! -f "$fly_env" ]; then
+    echo "  ⚠️  $fly_env was not created, so there is nothing to deploy from." >&2
+    echo "     Re-run:  $deploy init --from $from_abs --env-file $fly_env" >&2
+    return 0
+  fi
+
+  echo
+  echo "  2/4  the hostname contestants reach this deployment at. Fly serves every"
+  echo "       app at <app>.fly.dev; a custom domain needs a certificate (below)."
+  wiz_ask host "Public hostname" "$app.fly.dev"
+  # Organizers paste a URL. Take the host out of it rather than writing
+  # EVENT_URL=https://https://host/.
+  host="${host#http://}"
+  host="${host#https://}"
+  host="${host%%/*}"
+  # This value becomes EVENT_URL in .env.fly, which Fly then serves as
+  # BETTER_AUTH_URL and as the OAuth callback host — so a string that cannot
+  # be a DNS name has to be caught HERE, before the file is written. Pure
+  # glob cases, because the check runs under bash 3.2: no character outside
+  # the LDH set, no leading or trailing dot, at least one dot, and no label
+  # that is empty (`a..b`) or edged with a hyphen (`-a.b`, `a-.b`, `a.-b`,
+  # `a.b-`) — those parse as hostnames to the eye and resolve nowhere.
+  valid=0
+  case "$host" in
+    *[!A-Za-z0-9.-]*) ;;
+    .* | *.) ;;
+    *..*) ;;
+    -* | *-) ;;
+    *.-* | *-.*) ;;
+    *.*) valid=1 ;;
+  esac
+  if [ "$valid" -ne 1 ]; then
+    echo "  ⚠️  '$host' is not a hostname, so EVENT_URL was left as init wrote it." >&2
+    echo "     Set it by hand in $fly_env, then:  $deploy --env-file $fly_env" >&2
+    return 0
+  fi
+  local_url="$(env_url)"
+  # Named for the prose below, where an empty EVENT_URL must still read as a
+  # sentence rather than "the callback for , the compose box's URL".
+  local box_url="$local_url"
+  [ -n "$box_url" ] || box_url="the EVENT_URL in $from"
+  set_env_var "$fly_env" EVENT_URL "https://$host"
+  # set_env_var rewrites the file through mktemp+mv, which drops the mode 600
+  # `init` gave it — and this file holds every secret the event has.
+  chmod 600 "$fly_env"
+  echo "  ✅ EVENT_URL=https://$host in $fly_env"
+  echo "     ($from keeps its own EVENT_URL (${local_url:-<unset>}) — that is the compose box's.)"
+
+  echo
+  echo "  3/4  OAuth callback this hostname needs:"
+  echo "       https://$host/api/auth/callback/github"
+  echo "       Step 6 registered the callback for $box_url, the compose box's URL."
+  echo "       GitHub matches the callback host exactly, so this deployment needs its own:"
+  echo "       either point that OAuth app's callback at the line above (the box's own"
+  echo "       sign-in then stops working), or register a SECOND OAuth app for this"
+  echo "       hostname and put its client id/secret in $fly_env. Sign-in fails with a"
+  echo "       redirect_uri mismatch until one of those is true."
+  echo "       https://github.com/settings/developers"
+
+  echo
+  echo "  4/4  previewing the deploy — this makes no Fly calls:"
+  if ! "$deploy" --dry-run --env-file "$fly_env"; then
+    echo "  ⚠️  the preview failed, so nothing was deployed. $fly_env is written —" >&2
+    echo "     fix the error above, then:  $deploy --env-file $fly_env" >&2
+    return 0
+  fi
+  echo
+  if ask_yn "  Deploy that to fly.io now (builds and pushes images, sets secrets, boots the machine)?" N; then
+    if "$deploy" --env-file "$fly_env"; then
+      echo "  ✅ deployed"
+    else
+      # Idempotent by design, like this script: re-running resumes.
+      echo "  ⚠️  the deploy failed part-way. It is re-runnable — fix the error above, then:" >&2
+      echo "     $deploy --env-file $fly_env" >&2
+    fi
+  else
+    echo "  Not deployed. $fly_env is ready — run it when you are:"
+    echo "     $deploy --env-file $fly_env"
+  fi
+
+  echo
+  echo "  Fly hand-off:"
+  echo "    - open https://$host, sign in, and configure the event in /admin"
+  case "$host" in
+    *.fly.dev) ;;
+    *)
+      # A custom domain is a first-class setup, but Fly will not serve TLS for
+      # it until the certificate exists — and EVENT_URL is already set to it,
+      # so a deploy without this is a hostname that answers nothing.
+      echo "    - custom domain: it serves nothing until Fly holds a certificate for it —"
+      echo "        fly certs add $host --app $app"
+      echo "      then point the domain's DNS at the app as 'fly certs show' instructs"
+      ;;
+  esac
+  echo "    - unreachable after a deploy that reported success? Fly's IP allocation has"
+  echo "      failed mid-deploy before, so check the app actually has one:"
+  echo "        fly ips list --app $app"
+  return 0
+}
+
 # The default front door: walk a brand-new organizer from zero to a running,
 # scored event, doing every automatable step and guiding + verifying each
 # UI-only one. Resumable — it inspects state (check/doctor/the env file) and
@@ -1795,6 +2012,14 @@ cmd_wizard() {
   else
     ( cmd_doctor ) || true
   fi
+
+  # Optional, and deliberately NOT a tenth numbered step: the nine above stand
+  # up the local box, and this offers to put the same event on fly.io as well
+  # (issue #371). Default no, so a run that just wants the box is unchanged.
+  # `|| true` because an abandoned or failed Fly deploy must never take the
+  # wizard down after its .env work is already done — the function returns 0
+  # on every skip itself, and this is the belt to that braces.
+  wiz_fly_deploy "$out" || true
 
   # The closing screen. It names the KEYS the bootstrap file carries, never
   # their values: the same file holds BETTER_AUTH_SECRET, SRH_TOKEN,
