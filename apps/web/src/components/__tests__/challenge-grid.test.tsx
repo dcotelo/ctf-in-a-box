@@ -145,4 +145,23 @@ describe("ChallengeGrid (queue)", () => {
     // broken link, not as plain text.
     expect(html).not.toContain("ds-link");
   });
+
+  it("builds the category filter from the enabled targets only, not the whole catalogue (#391)", () => {
+    // The scorer's catalogue carries every target in its rubric; a target the
+    // organizer unticked on /admin still arrives in `catalog`. Its categories
+    // must not be offered — a filter that matches nothing on the board is a
+    // broken filter, not an empty result.
+    const juiceRows: CatalogChallenge[] = [
+      { app: "juice-shop", id: "xss-low", description: "DOM XSS", points: 1, owasp: { code: "A03", label: "Injection", url: null } },
+    ];
+    const html = renderToStaticMarkup(
+      <ChallengeGrid apps={[dvwa]} catalog={{ dvwa: rows, "juice-shop": juiceRows }} hints={{}} />,
+    );
+    // The enabled target's codes are offered…
+    expect(html).toContain('<option value="A01">A01</option>');
+    expect(html).toContain('<option value="A05">A05</option>');
+    // …the disabled target's is not, and neither are its rows.
+    expect(html).not.toContain('value="A03"');
+    expect(html).not.toContain("DOM XSS");
+  });
 });

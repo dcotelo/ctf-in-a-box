@@ -8,6 +8,14 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
 
 ## Unreleased
 
+- **Fixed: the challenge browser's OWASP category filter offered codes from
+  targets the organizer had unticked (#391).** The scorer's catalogue carries
+  every target in its rubric, and the filter was built from the whole of it
+  rather than from the runtime target list, so narrowing targets on
+  **Secure Development → Targets** left the filter offering categories that
+  matched nothing on the board. It now follows the enabled targets, as the
+  page's totals already did.
+
 - **BREAKING: configuration v2 — `event.yaml` is deleted; `.env` bootstraps
   the box and `/admin` runs the event (#386, [ADR 55](docs/decisions.md)).**
   One change, shipped over four parts, that replaces two overlapping config
