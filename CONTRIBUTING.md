@@ -117,9 +117,9 @@ filtering) plus eleven gated jobs — a job for an area your PR doesn't touch is
 | `vacuous` | No rubric check passes against an up-but-useless stub (0/321) |
 | `shell` | shellcheck + bats over `setup/`, `scripts/`, `deploy/fly/` |
 | `smoke` | The full poll pipeline against fixture services, including the forged-comment drop and the freeze hold |
-| `app` | eslint (`pnpm lint`, zero problems); vitest; the three grading Lua scripts and the admin, hint and team scripts executed against a real Redis behind srh (every `*.upstash.test.ts` suite, run serially; required, not skippable, in CI); the production build; the `/`-never-prerendered assertion; the build-time config acceptance |
+| `app` | eslint (`pnpm lint`, zero problems); vitest; the three grading Lua scripts and the admin, hint and team scripts executed against a real Redis behind srh (every `*.upstash.test.ts` suite, run serially; required, not skippable, in CI); the production build; the `/`-never-prerendered assertion; `acceptance-app.sh`'s runtime-config acceptance (one image, three environments) |
 | `quiz-only` / `classic-only` / `ai-only` | A single app-side module runs a whole event alone, with no scorer to pull |
-| `registries` | The KNOWN_MODULES / target lists duplicated across `sync`, `setup`, the app and the scorer still agree |
+| `registries` | The three independently maintained target lists (`sync/src/config.js`, `apps/web/src/lib/apps.ts`, `scorer/src/targets.js`) still agree |
 | `docs` | The Jekyll site builds; link/meta checks |
 
 Two heavier workflows (`stock-scores-zero`, `patched-scores-right`) run
@@ -134,11 +134,21 @@ are path-scoped to judge-relevant scorer inputs plus `patches/`.
 
 - **No testing-library.** UI decisions that need tests live in pure
   functions, which get tested directly; drag handlers and DOM plumbing don't.
-- **Differential corpus fixtures.** Two parsers in two languages
-  (`ctf-setup.sh` and `sync/src/config.js` both read `event.yaml`) are held
-  together by a shared fixture corpus asserted from both sides
-  (`setup/test/corpus/`) — agreeing with the corpus is agreeing with each
-  other.
+- **Differential tests over a shared source of truth.** Several readers parse
+  the same input in different languages and share no code, so each is pinned
+  to a file both sides can assert against rather than to the other's
+  behaviour. The `.env` bootstrap keys are read by `env_val`
+  (`setup/ctf-setup.sh`, bash) and by `loadConfig(env)` (`sync/src/config.js`,
+  JS) — the same keys, two parsers, and AGENTS.md's lockstep rule applies.
+  `setup/targets.tsv` is the only authoritative source of a fork's repo name,
+  and both `sync/test/repo-names.differential.test.js` and
+  `apps/web/src/lib/__tests__/apps-repo-names.differential.test.ts` parse that
+  file and assert their own list against it (`setup/test/ctf_setup.bats` does
+  the same from the bash side). The three independently maintained `TARGETS`
+  lists — `sync/src/config.js`, `apps/web/src/lib/apps.ts`,
+  `scorer/src/targets.js` — are compared by
+  `scripts/check-module-registries.mjs`, which fails closed if any parser
+  extracts nothing.
 - **Anti-vacuous discipline.** A test that "blocks the exploit" against an
   app that wasn't up proves nothing. Assertions must be able to fail:
   acceptance scripts assert on seeded names/logins reaching real rendered

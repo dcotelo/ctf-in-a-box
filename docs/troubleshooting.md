@@ -59,10 +59,12 @@ this repo), then restart the app container — no rebuild needed, since this is
 a runtime read, not a build arg:
 
 ```sh
-docker compose --profile poll --profile app up -d
+docker compose --profile secdev --profile app up -d
 ```
 
-(Quiz/classic-only events: `--profile app` alone.) Compose must also be
+(Quiz/classic/ai-only events: `--profile app` alone; a push-mode event:
+`--profile push --profile app`, since `secdev` would start the poller push
+mode has no use for.) Compose must also be
 passing `ADMIN_LOGINS` through to the app service's environment — it is on
 recent `docker-compose.yml`, but a customized override file that dropped it
 would reproduce this exact symptom.
@@ -96,12 +98,16 @@ Work down this list — each item is a different subsystem:
    Actions tab, then `./setup/ctf-setup.sh doctor` for the fork's
    provisioning row (workflow present? version current? image grant
    observed?). `upgrade` re-applies a stale workflow.
-3. **Is `sync` actually polling?** `docker compose logs -f sync`. A clean
-   `no polled module enabled, nothing to do` + exit 0 means your
-   `event.yaml` has no `secure-development` module — that's correct for a
-   quiz/classic-only event, and wrong if you expected scoring. A tick log
-   with `dropped` counts names why a comment was refused (forged author,
-   unknown target, malformed marker).
+3. **Is `sync` actually polling?** `docker compose logs -f sync`. No `sync`
+   container at all means the stack came up without `--profile secdev` —
+   correct for an event with no `SCORE_IMAGE`, wrong if you expected scoring.
+   A container that exits non-zero with `ctf-sync: GITHUB_ORG is not set`
+   means the key is missing from `.env`; set it and bring the stack back up.
+   A tick that polls **nothing** and records a `lastError` means the poller
+   could not read the Secure Development target list from
+   `ctf:admin:settings` — it waits rather than guessing, so fix Redis and the
+   next tick catches up. A tick log with `dropped` counts names why a comment
+   was refused (forged author, unknown target, malformed marker).
 4. **Is the score comment authored by `github-actions[bot]`?** Only that
    author is trusted — a comment posted any other way (including by you) is
    dropped by design.
@@ -144,7 +150,7 @@ repair exists.
 
 **Fix.** Read the first error line of `docker compose logs sync`. If state
 is beyond repair on an old version: `docker compose down && docker volume rm
-<project>_sync-state && docker compose --profile poll --profile app up -d` —
+<project>_sync-state && docker compose --profile secdev --profile app up -d` —
 losing the cursor is safe; poll mode re-reads scores from the PR comments
 and the scorer's writes are idempotent on replay.
 

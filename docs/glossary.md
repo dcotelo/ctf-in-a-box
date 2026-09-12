@@ -84,22 +84,29 @@ front of Redis. It exists so the vendored app's `@upstash/redis` client works
 unchanged against local Redis, and it is the only service on both compose
 networks — the app tier has no route to `redis:6379` at all.
 
-**event.yaml vs .env** — `event.yaml` bakes the event's dates,
-secure-development targets, fork org and bootstrap admins allowlist into the
-app image at build time via `EVENT_CONFIG_B64`. The event's name and the
-rest of its identity (theme, location, contact e-mail, Discord invite) are
-runtime `/admin` → Event → Identity settings instead (issue #386), not part
-of this file. `.env` is the box's secrets and its URL. One
-`event.yaml` deploys to any hostname because the URL deliberately lives only
-in `.env` ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)).
-Its `modules:` list is the *starting* set, not the live truth: modules are
-switched at runtime from `/admin` (`enabledModules` on `ctf:admin:settings`,
-[ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup))
-with the baked set as the outage fallback — Secure Development's *targets*
-moved to `/admin` too (config v2, #386 PR 2; `secureDevTargets`, defaulting
-to all six), and no module toggle or target change needs a rebuild.
-`ctf-setup.sh` still forks and provisions all six targets unconditionally,
-whatever `event.yaml` says.
+**The two config planes** — there is no config file (#386,
+[ADR 55](decisions.md#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml)).
+`.env` is the **bootstrap** plane: the box's secrets plus four keys read once
+at container start — `GITHUB_ORG` (the fork org), `ADMIN_LOGINS` (the
+bootstrap admins allowlist), `SCORE_IMAGE` (the scorer image, and by its
+non-emptiness whether Secure Development is *available* — it adds the compose
+profile and seeds the default module set, while `/admin` still decides what is
+live), and
+`EVENT_URL`, which lives only here so one deployment recipe travels to any
+hostname ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)).
+`ctf:admin:settings` is the **runtime** plane: everything an organizer
+changes during the event, written from `/admin` and re-read on every request
+— which modules are enabled (`enabledModules`,
+[ADR 52](decisions.md#adr-52-modules-are-switched-at-runtime-secure-development-is-configured-at-setup)),
+which Secure Development targets run (`secureDevTargets`, defaulting to all
+six), the event's identity, the schedule, hints and team caps. Nothing is
+baked into an image, and no toggle needs a rebuild.
+
+The two planes divide *provisioning* from *selection*. With `SCORE_IMAGE`
+non-empty, `ctf-setup.sh` forks and provisions all six targets, every time;
+with it empty it skips provisioning altogether and there is nothing on GitHub
+to select from. `/admin` then owns both live choices: `enabledModules`, and the
+`secureDevTargets` subset of those six that contestants actually see.
 
 ## The project's names
 
@@ -107,9 +114,9 @@ Five names orbit "the project"; they are not interchangeable:
 
 | Name | What it is |
 |---|---|
-| **OWASP CTF** | The product / brand (README, `dcotelo.github.io/owasp-ctf`) **and** the default event name every deployment shows until an organizer renames it. The two are deliberately the same string since the rebrand; real events override it from `/admin` → Event → Identity (a runtime setting since #386, not `event.yaml`). One consequence to know: a build that lost `EVENT_CONFIG_B64` no longer betrays itself by its name — the name is unaffected either way — check for an empty `admins` list and a 403 on `/admin` instead. |
+| **OWASP CTF** | The product / brand (README, `dcotelo.github.io/owasp-ctf`) **and** the default event name every deployment shows until an organizer renames it. The two are deliberately the same string since the rebrand; real events override it from `/admin` → Event → Identity (a runtime setting since #386). One consequence to know: since the name is never baked, a misconfigured box does not betray itself by its name — check for an empty `ADMIN_LOGINS` and a 403 on `/admin` instead. |
 | `owasp-ctf` | The local repo directory and the lowercase image namespace. |
-| `OWASP-CTF` | The GitHub **org** the canonical targets are forked into (`github.org` default). |
+| `OWASP-CTF` | The GitHub **org** the canonical targets are forked into (`GITHUB_ORG` in `.env`). |
 | `ghcr.io/owasp-ctf/score` | The scorer image path. The lowercase `owasp-ctf` here is a registry-namespace convenience, not the `OWASP-CTF` org; override `SCORE_IMAGE` to your own org's GHCR. |
 | `dc34-owasp-secure-development-ctf` | The upstream repo the rubrics are vendored from (see `scorer/rubric.owasp/PROVENANCE.md`). |
 

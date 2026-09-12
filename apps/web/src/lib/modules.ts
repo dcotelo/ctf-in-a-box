@@ -1,6 +1,7 @@
-// CTF module registry. Registration is deliberate: a new vertical is code
-// (an entry here) + config (a key under modules. in event.yaml) — never
-// config alone. See the kit's docs/modules.md for the full contract.
+// CTF module registry. Registration is deliberate: a new vertical is code —
+// an entry here, and nothing else. There is no config-file namespace to
+// declare one in (config v2, #386); enablement is a runtime /admin setting on
+// top of this list. See the kit's docs/modules.md for the full contract.
 export type ModuleId = "secure-development" | "quiz" | "classic" | "ai";
 
 /** Context handed to a module's home-page copy so it can interpolate live
@@ -214,7 +215,7 @@ export type ModuleTerms = (ctx: OrgContext) => {
  *  `where` is the whole reason the field exists as data rather than prose:
  *  an organizer hunting for "the place I add questions" must be told whether
  *  that place is this panel or somewhere outside it (`ctf-setup.sh`, the
- *  GitHub org, `event.yaml`) — the two failure modes the admin panel's own
+ *  GitHub org, `.env`) — the two failure modes the admin panel's own
  *  audit found were people looking in the wrong one.
  *
  *  `check` names a live count the panel already holds (its own list of
@@ -312,7 +313,7 @@ export type ModuleDef = {
 };
 
 // Display metadata per registered module. Registration is deliberate: an entry
-// here plus a key under `modules:` in event.yaml — never config alone.
+// here is the whole declaration — there is no config file that can add one.
 const REGISTRY: Record<ModuleId, ModuleDef> = {
   "secure-development": {
     id: "secure-development",
@@ -690,7 +691,7 @@ git push -u origin fix/<short-description>`,
     routeCard: (ctx) =>
       `Every challenge across the ${ctx.appCount} ${ctx.appCount === 1 ? "target" : "targets"}.`,
     // Organizer-facing setup checklist (module contract §5.9). Every step
-    // here is a `ctf-setup.sh`/GitHub/`event.yaml` step — this is the one
+    // here is a `ctf-setup.sh`/GitHub/`.env` step — this is the one
     // module the panel cannot set up, only tune — so none carries a `check`:
     // the app cannot see a fork or an App installation and must not pretend
     // to. Steps and their order follow docs/hosting.md's quickstart.
@@ -966,9 +967,9 @@ git push -u origin fix/<short-description>`,
           title: "Enable the module",
           where: "panel",
           body: [
-            "Switch it on from the Event tab — modules are enabled at runtime (issue #386); ",
-            { code: "event.yaml" },
-            " no longer enables them.",
+            "Switch it on from the Event tab — modules are enabled at runtime (issue #386), from ",
+            { code: "/admin" },
+            " alone. There is no config file and nothing is baked into the image.",
           ],
         },
         {
@@ -1213,9 +1214,9 @@ git push -u origin fix/<short-description>`,
           title: "Enable the module",
           where: "panel",
           body: [
-            "Switch it on from the Event tab — modules are enabled at runtime (issue #386); ",
-            { code: "event.yaml" },
-            " no longer enables them.",
+            "Switch it on from the Event tab — modules are enabled at runtime (issue #386), from ",
+            { code: "/admin" },
+            " alone. There is no config file and nothing is baked into the image.",
           ],
         },
         {
@@ -1472,9 +1473,9 @@ git push -u origin fix/<short-description>`,
           title: "Enable the module",
           where: "panel",
           body: [
-            "Switch it on from the Event tab — modules are enabled at runtime (issue #386); ",
-            { code: "event.yaml" },
-            " no longer enables them.",
+            "Switch it on from the Event tab — modules are enabled at runtime (issue #386), from ",
+            { code: "/admin" },
+            " alone. There is no config file and nothing is baked into the image.",
           ],
         },
         {

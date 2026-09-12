@@ -14,7 +14,7 @@
 // on every visit, so the actual controls began one to two screens down for
 // the rest of the event (UX audit, redesign § Why 5).
 //
-// Steps done OUTSIDE this panel (`where: "outside"` — event.yaml, the GitHub
+// Steps done OUTSIDE this panel (`where: "outside"` — .env, the GitHub
 // org, ctf-setup.sh) are not listed: this panel exists only while the
 // module is enabled, so every one of them is behind the organizer already.
 // The guide link at the bottom still carries them for anyone re-provisioning.

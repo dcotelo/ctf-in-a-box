@@ -45,14 +45,14 @@ FLY_REGION=gru
 GITHUB_APP_ID=1
 GITHUB_APP_PRIVATE_KEY=RklYVFVSRVBSSVZBVEVLRVl1dXV1dQ==
 GITHUB_APP_INSTALLATION_ID=1
+GITHUB_ORG=fixture-org
+ADMIN_LOGINS=fixture-admin
 ENV
-  printf 'github: { org: fixture-org }\n' > "$BATS_TEST_TMPDIR/event.yaml"
 
   RENDERED="$BATS_TEST_TMPDIR/compose.fly.yml"
   render() {
     "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env" --out "$RENDERED" \
-      --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t \
-      --event-config "$BATS_TEST_TMPDIR/event.yaml"
+      --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t
     # EVERY render test asserts through this, so it asserts the file exists.
     # A negative check ("no service name is left as a host") passes trivially
     # against a file that was never written — which happened while developing
@@ -229,26 +229,47 @@ ENV
   # before init learned to add them — which is how a live deployment ran for
   # weeks with sync's cursor on ephemeral disk (#364). The warning has to name
   # the exact lines to add, so it is asserted on one of them.
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env"
   echo "$output" | grep -qF 'STATE_PATH=/data/sync/state.json'
   # And with both present the warning is gone — a warning that always fires
   # is one nobody reads.
   cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.knobs"
   printf 'REDIS_DIR=/data/redis\nSTATE_PATH=/data/sync/state.json\n' >> "$BATS_TEST_TMPDIR/env.knobs"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.knobs" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.knobs"
   [ -z "$(echo "$output" | grep -F 'predates the single-volume layout')" ]
+}
+
+@test "--profile app alone really excludes sync — secdev is not a no-op" {
+  # Naming a service explicitly on `docker compose config` makes compose
+  # enable whatever profile it needs on its own, bypassing --profile
+  # filtering entirely — so a test that named `sync`/`scorer` here would keep
+  # passing even if docker-compose.yml's profile string silently drifted from
+  # "secdev" to something else, or if render-compose.sh's derivation broke.
+  # `config --services` (no service names) is asked instead, which
+  # discriminates on --profile the same way `up` actually would.
+  cd "$REPO"
+  need_docker
+  run env SRH_TOKEN=t SCORER_TOKEN=t BETTER_AUTH_SECRET=t REDIS_PASSWORD=p \
+    GITHUB_CLIENT_ID=i GITHUB_CLIENT_SECRET=s SCORE_IMAGE=x \
+    docker compose -f docker-compose.yml --profile app config --services
+  # The absence check below passes trivially against an ERROR — a compose file
+  # that failed to interpolate lists no services at all, which is exactly what
+  # "sync is not here" looks like. The exit status and the positive `app` line
+  # are what make the negative assertion mean something.
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qx 'app'
+  [ -z "$(echo "$output" | grep -x 'sync')" ]
 }
 
 @test "the local defaults are unchanged by the Fly layout" {
   # The knobs exist for Fly, but a compose stack must keep writing exactly
   # where it always has — otherwise every existing local event silently starts
-  # from an empty datastore.
+  # from an empty datastore. The profile test above already proved --profile
+  # secdev is what makes sync appear at all, so naming it here is safe.
   cd "$REPO"
   run env SRH_TOKEN=t SCORER_TOKEN=t BETTER_AUTH_SECRET=t REDIS_PASSWORD=p \
     GITHUB_CLIENT_ID=i GITHUB_CLIENT_SECRET=s SCORE_IMAGE=x \
-    docker compose -f docker-compose.yml --profile poll --profile app config redis sync
+    docker compose -f docker-compose.yml --profile secdev --profile app config redis sync
   echo "$output" | grep -qF 'REDIS_DIR: /data'
   echo "$output" | grep -qF 'STATE_PATH: /state/state.json'
 }
@@ -295,6 +316,22 @@ ENV
   [ -n "$app_env" ] && [ -n "$redis_env" ]
   [ -z "$(echo "$app_env" | grep -F 'REDIS_PASSWORD')" ]
   [ -z "$(echo "$redis_env" | grep -F 'GITHUB_CLIENT_SECRET')" ]
+}
+
+@test "render: GITHUB_ORG and ADMIN_LOGINS reach the machine, with no build-time bake" {
+  need_docker
+  render
+  # Config v2 (#386) reads both at runtime — the same channel as every other
+  # non-secret value here, docker-compose.yml's own `environment:` entries
+  # interpolated by `docker compose config` from ENV_FILE. Neither is a
+  # build arg (there is none any more) and neither needs a `fly secrets set`
+  # entry, exactly like GITHUB_CLIENT_ID already does not.
+  app_env="$(awk '/^  app:/{f=1;next} /^  [a-z]+:/{f=0} f' "$RENDERED")"
+  sync_env="$(awk '/^  sync:/{f=1;next} /^  [a-z]+:/{f=0} f' "$RENDERED")"
+  [ -n "$app_env" ] && [ -n "$sync_env" ]
+  echo "$app_env" | grep -qF 'GITHUB_ORG: fixture-org'
+  echo "$app_env" | grep -qF 'ADMIN_LOGINS: fixture-admin'
+  echo "$sync_env" | grep -qF 'GITHUB_ORG: fixture-org'
 }
 
 @test "render: the output is mode 600" {
@@ -414,6 +451,78 @@ ENV
   [ "$(grep -cE '^  [a-z-]+:' "$RENDERED")" = "5" ]
 }
 
+@test "render: adds secdev (scorer, sync) iff SCORE_IMAGE is non-empty" {
+  need_docker
+  # SCORE_IMAGE is the ONE key every entry point derives "does this event run
+  # Secure Development" from (scripts/dev-stack, docker-compose.yml's scorer
+  # comment) — this is render-compose.sh's half of that rule. Fly's deploy.sh
+  # always requires SCORE_IMAGE today (R2, config v2 #386), so a real deploy
+  # can never reach the empty case; this exercises the renderer directly.
+  #
+  # Naming scorer/sync explicitly on the `docker compose config` command line
+  # would render them regardless of --profile (compose enables whatever
+  # profile a named service needs on its own), so the fix has to derive
+  # SERVICES alongside PROFILES — this is the test that would catch a
+  # regression back to naming them unconditionally.
+  sed 's/^SCORE_IMAGE=.*/SCORE_IMAGE=/' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.noscore"
+  out="$BATS_TEST_TMPDIR/noscore.yml"
+  "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env.noscore" --out "$out" \
+    --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t
+  [ -s "$out" ]
+  [ -z "$(grep -E '^  (scorer|sync):' "$out")" ]
+  [ -n "$(grep -E '^  (app|srh|redis):' "$out")" ]
+}
+
+@test "render: a quoted-empty SCORE_IMAGE is empty, the way compose reads it" {
+  need_docker
+  # `SCORE_IMAGE=""` is a legal .env line and compose parses it as EMPTY. A
+  # bare `sed -n 's/^SCORE_IMAGE=//p'` hands back the two-character string
+  # `""`, which is non-empty — so the renderer added secdev, and rendered a
+  # scorer and a sync, for an app-only event.
+  sed 's|^SCORE_IMAGE=.*|SCORE_IMAGE=""|' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.q"
+  out="$BATS_TEST_TMPDIR/quoted-empty.yml"
+  "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env.q" --out "$out" \
+    --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t
+  [ -s "$out" ]
+  [ -n "$(grep -E '^  (app|srh|redis):' "$out")" ]
+  [ -z "$(grep -E '^  (scorer|sync):' "$out")" ]
+}
+
+@test "render: a quoted SCORE_IMAGE still enables secdev" {
+  need_docker
+  # The complement of the test above: stripping the quotes must not strip the
+  # VALUE. A parser that read `SCORE_IMAGE="ghcr.io/..."` as empty would make
+  # every quoted-env event app-only, which is the same bug pointing the other
+  # way and would pass the test above on its own.
+  sed 's|^SCORE_IMAGE=.*|SCORE_IMAGE="ghcr.io/fixture-org/score:latest"|' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.qv"
+  out="$BATS_TEST_TMPDIR/quoted-value.yml"
+  "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env.qv" --out "$out" \
+    --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t
+  [ -s "$out" ]
+  # Both services, not either: a regression dropping one must not pass.
+  grep -qE '^  scorer:' "$out"
+  grep -qE '^  sync:' "$out"
+}
+
+@test "render: a spaced SCORE_IMAGE assignment still enables secdev" {
+  need_docker
+  # `SCORE_IMAGE = ghcr.io/...` is legal .env: compose trims whitespace around
+  # the key and after the `=`, and reads the value fine. A reader matching only
+  # `^SCORE_IMAGE=` saw nothing there and rendered an app-only stack for an
+  # event that has a scorer — the renderer and compose disagreeing about one
+  # file again, this time in the other direction.
+  sed 's|^SCORE_IMAGE=.*|SCORE_IMAGE = ghcr.io/fixture-org/score:latest|' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.spaced"
+  out="$BATS_TEST_TMPDIR/spaced.yml"
+  "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env.spaced" --out "$out" \
+    --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t
+  [ -s "$out" ]
+  # Both services, not either: a regression dropping one must not pass.
+  grep -qE '^  scorer:' "$out"
+  grep -qE '^  sync:' "$out"
+}
+
 @test "render: no build, networks, volumes or profiles keys survive" {
   need_docker
   render
@@ -474,12 +583,96 @@ ENV
 @test "dry-run makes no fly calls at all" {
   need_docker
   cd "$REPO"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env"
   [ "$status" -eq 0 ]
   # Every fly invocation goes through fly_run, which prints instead of running.
   # A line that would call fly without that prefix is a real call in a dry run.
   [ -z "$(echo "$output" | grep -E '^fly ')" ]
+}
+
+@test "deploy refuses an ADMIN_LOGINS that parses to no admin" {
+  need_docker
+  cd "$REPO"
+  # `require` only ever checked for an empty string, but the app parses this
+  # value with parseAdminLogins (apps/web/src/lib/admin-logins.ts): split,
+  # trim, drop anything not shaped like a GitHub login. Each of these is
+  # non-empty and parses to NOBODY, so it would deploy an event whose /admin
+  # 403s everyone — the operator included, with another deploy the only fix.
+  #
+  # Two groups, because "did the message leak the value?" is only a question
+  # you can ask of a distinctive value: a bare "," appears in any English
+  # sentence, so grepping the output for it proves nothing either way.
+  for bad in "," " , " "bad login!" "alice@example.com" "-alice" "a--b"; do
+    sed "s|^ADMIN_LOGINS=.*|ADMIN_LOGINS=$bad|" "$BATS_TEST_TMPDIR/env" \
+      > "$BATS_TEST_TMPDIR/env.admins"
+    run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.admins"
+    if [ "$status" -eq 0 ]; then
+      echo "ACCEPTED an unusable ADMIN_LOGINS: [$bad]"
+      return 1
+    fi
+    if ! echo "$output" | grep -qF 'ADMIN_LOGINS'; then
+      echo "refused [$bad] without naming ADMIN_LOGINS: $output"
+      return 1
+    fi
+  done
+
+  # The redaction half, checked INSIDE the loop: $output is overwritten by the
+  # next `run`, so a leak in an early iteration is gone by the time the test
+  # ends. A typo'd roster can hold an email address or a pasted secret, so the
+  # refusal names the shape and the count and never the value.
+  for bad in "bad login!" "alice@example.com" "-alice" "a--b"; do
+    sed "s|^ADMIN_LOGINS=.*|ADMIN_LOGINS=$bad|" "$BATS_TEST_TMPDIR/env" \
+      > "$BATS_TEST_TMPDIR/env.admins"
+    run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.admins"
+    if [ "$status" -eq 0 ]; then
+      echo "ACCEPTED an unusable ADMIN_LOGINS: [$bad]"
+      return 1
+    fi
+    if echo "$output" | grep -qF -- "$bad"; then
+      echo "refusal leaked the ADMIN_LOGINS value: [$bad]"
+      return 1
+    fi
+  done
+
+  # Decisive and last, per AGENTS.md: a bracket test that gates on the final
+  # iteration's output rather than ending the test on a bare loop.
+  [ -z "$(echo "$output" | grep -F -- 'a--b')" ]
+}
+
+@test "deploy accepts a real ADMIN_LOGINS roster" {
+  need_docker
+  cd "$REPO"
+  # The complement, so the refusal above cannot be satisfied by refusing
+  # everything: a plain roster, one padded with spaces and a stray comma, a
+  # login with a legal internal hyphen, and an empty entry between two good
+  # ones all have to pass.
+  for good in "alice,bob" " alice , bob ," "octo-cat" "alice,,bob"; do
+    sed "s|^ADMIN_LOGINS=.*|ADMIN_LOGINS=$good|" "$BATS_TEST_TMPDIR/env" \
+      > "$BATS_TEST_TMPDIR/env.admins"
+    run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.admins"
+    if [ "$status" -ne 0 ]; then
+      echo "REFUSED a usable ADMIN_LOGINS: [$good] -> $output"
+      return 1
+    fi
+  done
+  [ "$status" -eq 0 ]
+}
+
+@test "deploy reads a spaced .env assignment, the way compose does" {
+  need_docker
+  cd "$REPO"
+  # The deploy.sh half of the same rule. Every required key goes through
+  # env_value, so a spaced assignment used to read as empty and `require`
+  # refused a file compose would have deployed happily.
+  sed -e 's|^SCORE_IMAGE=|SCORE_IMAGE = |' \
+      -e 's|^ADMIN_LOGINS=|ADMIN_LOGINS = |' \
+      -e 's|^GITHUB_ORG=|  GITHUB_ORG=|' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.spaced"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.spaced"
+  [ "$status" -eq 0 ]
+  # Not merely "it did not refuse": the VALUE has to arrive intact, with the
+  # padding stripped rather than carried into the image reference.
+  echo "$output" | grep -qF 'ghcr.io/fixture-org/score:latest'
 }
 
 @test "the /health revision survives dirt outside apps/web" {
@@ -493,8 +686,7 @@ ENV
   probe="docs/__health_scope_probe.md"
   rm -f "$probe"
   echo "untracked, and outside the build context" > "$probe"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env"
   rm -f "$probe"
   [ "$status" -eq 0 ]
   # A real sha, not <none>. Single-bracket `[` so the assertion actually gates.
@@ -510,8 +702,7 @@ ENV
   probe="apps/web/__health_scope_probe.txt"
   rm -f "$probe"
   echo "untracked, and INSIDE the build context" > "$probe"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env"
   rm -f "$probe"
   [ "$status" -eq 0 ]
   [ -n "$(echo "$output" | grep -F 'APP_BUILD_REV=<none>')" ]
@@ -520,8 +711,7 @@ ENV
 @test "dry-run redacts every secret value it would set" {
   need_docker
   cd "$REPO"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env"
   # This regressed once for real: an organizer previewed a deploy and watched
   # their GitHub App private key, OAuth client secret and BETTER_AUTH_SECRET
   # scroll past into a terminal, a scrollback buffer, and whatever was
@@ -540,8 +730,7 @@ ENV
 @test "dry-run still shows WHICH variables get set" {
   need_docker
   cd "$REPO"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env"
   # Redaction that hides the variable NAMES too would defeat the point of
   # previewing: the reason to run this is to check what is configured where.
   echo "$output" | grep -qF 'UPSTASH_REDIS_REST_TOKEN=<redacted>'
@@ -550,8 +739,7 @@ ENV
 @test "the srh connection string points at loopback" {
   need_docker
   cd "$REPO"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env"
   # It is redacted in the output (it embeds the password), so this asserts on
   # the rendered file's sibling: the variable is set at all.
   echo "$output" | grep -qF 'SRH_CONNECTION_STRING=<redacted>'
@@ -567,8 +755,7 @@ ENV
   # here, in dry-run too, is the one place the mistake is cheap.
   cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.push"
   echo "SCORE_INGEST=push" >> "$BATS_TEST_TMPDIR/env.push"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.push" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.push"
   [ "$status" -ne 0 ]
   # Names the reason and the fix, and never reaches the deploy plan.
   echo "$output" | grep -qF 'poll-only'
@@ -581,14 +768,12 @@ ENV
   cd "$REPO"
   # The fixture env has no SCORE_INGEST at all — the historical default — and
   # an explicit poll must behave identically. Both reach the deploy plan.
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env"
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF '== 5/5 deploy'
   cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.poll"
   echo "SCORE_INGEST=poll" >> "$BATS_TEST_TMPDIR/env.poll"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.poll" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.poll"
   [ "$status" -eq 0 ]
   echo "$output" | grep -qF '== 5/5 deploy'
 }
@@ -596,8 +781,7 @@ ENV
 @test "a non-https EVENT_URL is refused" {
   cd "$REPO"
   sed 's|^EVENT_URL=.*|EVENT_URL=http://localhost|' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.http"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.http" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.http"
   [ "$status" -ne 0 ]
   # ADR 39: the app refuses to serve a production event over plain HTTP, so
   # this would deploy an app that answers 500 to everything.
@@ -607,8 +791,7 @@ ENV
 @test "an unfilled placeholder EVENT_URL is refused" {
   cd "$REPO"
   sed 's|^EVENT_URL=.*|EVENT_URL=https://<your-app>.fly.dev|' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.ph"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.ph" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.ph"
   [ "$status" -ne 0 ]
   # It passes the https:// test, so without this it deploys and fails much
   # later as a redirect_uri mismatch nobody can resolve.
@@ -618,23 +801,24 @@ ENV
 @test "a missing REDIS_PASSWORD names REDIS_PASSWORD and nothing else" {
   cd "$REPO"
   grep -v '^REDIS_PASSWORD=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.nored"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.nored" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.nored"
   [ "$status" -ne 0 ]
   # Naming several variables when one is absent sends the reader to check the
   # ones they already set.
   [ -z "$(echo "$output" | grep -F 'SRH_TOKEN and')" ]
 }
 
-@test "--skip-build warns that event.yaml will not be picked up" {
+@test "--skip-build never warns about a stale config — nothing is baked" {
+  # Config v2 (#386) removed the event.yaml bake: GITHUB_ORG, ADMIN_LOGINS and
+  # everything else are runtime reads that flow through the rendered compose
+  # file on every deploy, with or without --skip-build. A warning that used to
+  # fire here (the app "bakes" config at build time) would now be simply
+  # wrong, so assert it is gone rather than that it fires.
   need_docker
   cd "$REPO"
-  run ./deploy/fly/deploy.sh --dry-run --skip-build --env-file "$BATS_TEST_TMPDIR/env" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
-  # The app bakes event.yaml at BUILD time, so "skip the build" and "pick up
-  # the new config" are contradictory. Silently deploying a stale config that
-  # looks deployed is the failure this prevents.
-  echo "$output" | grep -qF 'baked'
+  run ./deploy/fly/deploy.sh --dry-run --skip-build --env-file "$BATS_TEST_TMPDIR/env"
+  [ "$status" -eq 0 ]
+  [ -z "$(echo "$output" | grep -F 'baked')" ]
 }
 
 @test "init needs no fly CLI and touches nothing on Fly" {
@@ -653,6 +837,72 @@ ENV
   echo "$output" | grep -qF 'not a Fly region code'
 }
 
+@test "init --refresh carries GITHUB_ORG and ADMIN_LOGINS (#381)" {
+  cd "$REPO"
+  # An .env.fly holding an OLD org/admin pairing — the shape of a Fly
+  # deployment that predates a target-org rename or an admin roster change
+  # (exactly the incident in #381).
+  sed -e 's/^GITHUB_ORG=.*/GITHUB_ORG=old-org/' \
+      -e 's/^ADMIN_LOGINS=.*/ADMIN_LOGINS=old-admin/' \
+      "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.fly.stale"
+  run ./deploy/fly/deploy.sh init --refresh --region gru \
+    --from "$BATS_TEST_TMPDIR/env" --env-file "$BATS_TEST_TMPDIR/env.fly.stale"
+  [ "$status" -eq 0 ]
+  [ "$(sed -n 's/^GITHUB_ORG=//p' "$BATS_TEST_TMPDIR/env.fly.stale" | tail -1)" = "fixture-org" ]
+  [ "$(sed -n 's/^ADMIN_LOGINS=//p' "$BATS_TEST_TMPDIR/env.fly.stale" | tail -1)" = "fixture-admin" ]
+}
+
+@test "init --refresh ADDS the config-v2 keys to an env file that lacks them" {
+  cd "$REPO"
+  # A `.env.fly` written BEFORE config v2 (#386) has no GITHUB_ORG and no
+  # ADMIN_LOGINS line at all — which the awk rewrite could only ever replace,
+  # never add, while still reporting "updated". Asserts the FILE, not the exit
+  # status: the old behaviour exited 0 and left the file unchanged.
+  grep -vE '^(GITHUB_ORG|ADMIN_LOGINS)=' "$BATS_TEST_TMPDIR/env" \
+    > "$BATS_TEST_TMPDIR/env.fly.prev2"
+  run ./deploy/fly/deploy.sh init --refresh --region gru \
+    --from "$BATS_TEST_TMPDIR/env" --env-file "$BATS_TEST_TMPDIR/env.fly.prev2"
+  [ "$(sed -n 's/^GITHUB_ORG=//p' "$BATS_TEST_TMPDIR/env.fly.prev2" | tail -1)" = "fixture-org" ]
+  [ "$(sed -n 's/^ADMIN_LOGINS=//p' "$BATS_TEST_TMPDIR/env.fly.prev2" | tail -1)" = "fixture-admin" ]
+}
+
+@test "deploy refuses an env file with no ADMIN_LOGINS, naming the key" {
+  cd "$REPO"
+  # An empty admin allowlist locks EVERYONE out of /admin, including the
+  # operator running the deploy, and nothing in a healthy-looking machine says
+  # so — the 403 arrives after the deploy, at sign-in.
+  grep -v '^ADMIN_LOGINS=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.noadmins"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.noadmins"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qF 'ADMIN_LOGINS is empty'
+}
+
+@test "deploy refuses an env file with no GITHUB_ORG, naming the key" {
+  cd "$REPO"
+  # Fly is poll-only, so sync always runs here — and it exits at start-up
+  # without an org while the other four containers come up clean.
+  grep -v '^GITHUB_ORG=' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.noorg"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.noorg"
+  [ "$status" -ne 0 ]
+  echo "$output" | grep -qF 'GITHUB_ORG is empty'
+}
+
+@test "init --refresh falls through to the top-up prompts instead of exiting (#381)" {
+  cd "$REPO"
+  # A stale .env.fly missing the knobs a plain `init` would have added — this
+  # is the shape that once ran for weeks with sync's cursor on ephemeral disk
+  # (#364), because `--refresh` used to exit right after the credential loop
+  # instead of reaching these.
+  grep -vE '^(SRH_TOKEN|REDIS_PASSWORD|FLY_REGION|REDIS_DIR|STATE_PATH)=' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.fly.bare"
+  run ./deploy/fly/deploy.sh init --refresh \
+    --from "$BATS_TEST_TMPDIR/env" --env-file "$BATS_TEST_TMPDIR/env.fly.bare"
+  [ "$status" -eq 0 ]
+  [ -n "$(sed -n 's/^SRH_TOKEN=//p' "$BATS_TEST_TMPDIR/env.fly.bare" | tail -1)" ]
+  [ -n "$(sed -n 's/^REDIS_PASSWORD=//p' "$BATS_TEST_TMPDIR/env.fly.bare" | tail -1)" ]
+  grep -qF 'REDIS_DIR=/data/redis' "$BATS_TEST_TMPDIR/env.fly.bare"
+}
+
 # ---------------------------------------------------------------------------
 # Cross-file agreement.
 # ---------------------------------------------------------------------------
@@ -661,8 +911,7 @@ ENV
   # deploy.sh reads the name out of fly.toml rather than repeating it, so this
   # guards the reader, not a duplicated constant.
   cd "$REPO"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env"
   name="$(grep -E '^app *= *"' "$FLY/fly.toml" | head -1 | sed 's/.*"\(.*\)".*/\1/')"
   echo "$output" | grep -qF "== app: $name"
 }
@@ -689,8 +938,7 @@ ENV
 @test "the deploy passes a prebuilt image so flyctl does not try to build one" {
   need_docker
   cd "$REPO"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env"
   # Without this the first real deploy died after every image was already
   # built and pushed: flyctl resolves a machine image before it reads the
   # compose file, and with no [build] section it has nothing to resolve —
@@ -706,8 +954,7 @@ ENV
 @test "autostop is off unless asked for" {
   need_docker
   cd "$REPO"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env"
   # The committed fly.toml is deployed as-is, with no rendered override.
   echo "$output" | grep -qF 'fly deploy --config deploy/fly/fly.toml'
 }
@@ -721,8 +968,7 @@ ENV
   # legitimately dirty mid-change, and `git diff --quiet` would then fail for a
   # reason that has nothing to do with what this test is about.
   before="$(md5 -q "$FLY/fly.toml" 2>/dev/null || md5sum "$FLY/fly.toml" | cut -d' ' -f1)"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.as" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.as"
   after="$(md5 -q "$FLY/fly.toml" 2>/dev/null || md5sum "$FLY/fly.toml" | cut -d' ' -f1)"
   # A deploy that dirties a tracked file is a deploy that gets committed by
   # accident, so the substitution goes to a temporary copy.
@@ -735,8 +981,7 @@ ENV
   cd "$REPO"
   cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.as"
   echo "FLY_AUTO_STOP=stop" >> "$BATS_TEST_TMPDIR/env.as"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.as" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.as"
   # The machine holds redis and the poller, so this is not the ordinary
   # stateless-web-app tradeoff Fly's docs describe.
   echo "$output" | grep -qF 'leaderboard does not advance'
@@ -747,8 +992,7 @@ ENV
   cd "$REPO"
   cp "$BATS_TEST_TMPDIR/env" "$BATS_TEST_TMPDIR/env.as"
   echo "FLY_AUTO_STOP=true" >> "$BATS_TEST_TMPDIR/env.as"
-  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.as" \
-    --config "$BATS_TEST_TMPDIR/event.yaml"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.as"
   [ "$status" -ne 0 ]
   # `true` is the obvious guess and is NOT one of Fly's values.
   echo "$output" | grep -qF 'Use off, stop or suspend'
@@ -830,4 +1074,35 @@ ENV
   grep -qF 'could not inspect' "$FLY/deploy.sh"
   # And it must actually retry rather than give up on one bad response.
   grep -qF 'for _ in 1 2; do' "$FLY/deploy.sh"
+}
+
+@test "render: a colon-delimited SCORE_IMAGE assignment still enables secdev" {
+  need_docker
+  # Compose's .env grammar takes `KEY: value` as well as `KEY=value`. A reader
+  # that only knew `=` read a colon-delimited SCORE_IMAGE as unset and rendered
+  # an app-only stack for an event that has a scorer.
+  sed 's|^SCORE_IMAGE=.*|SCORE_IMAGE: ghcr.io/fixture-org/score:latest|' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.colon"
+  out="$BATS_TEST_TMPDIR/colon.yml"
+  "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env.colon" --out "$out" \
+    --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t
+  [ -s "$out" ]
+  # Both services, not either: a regression dropping one must not pass.
+  grep -qE '^  scorer:' "$out"
+  grep -qE '^  sync:' "$out"
+}
+
+@test "deploy reads a colon-delimited .env assignment, the way compose does" {
+  need_docker
+  cd "$REPO"
+  # The deploy.sh half: `SCORE_IMAGE: ghcr.io/...` used to read as empty and
+  # `require` refused a file compose would have deployed. The value itself
+  # contains a colon (the image tag), so the delimiter match must stop at the
+  # first one after the key and leave the rest intact.
+  sed -e 's|^SCORE_IMAGE=|SCORE_IMAGE: |' \
+      -e 's|^ADMIN_LOGINS=|ADMIN_LOGINS : |' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.colon"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.colon"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'ghcr.io/fixture-org/score:latest'
 }

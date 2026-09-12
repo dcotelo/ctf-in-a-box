@@ -1,0 +1,100 @@
+<svg viewBox="0 0 880 420" xmlns="http://www.w3.org/2000/svg" width="100%" role="img" aria-labelledby="ttl desc" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace">
+  <title id="ttl">Runtime config flow</title>
+  <desc id="desc">Animated diagram of the two configuration planes an event is built from, with no config file between them. Bootstrap plane: the wizard or the organizer writes GITHUB_ORG, ADMIN_LOGINS, SCORE_IMAGE and EVENT_URL into .env; docker compose up reads them, adding the secdev profile only when SCORE_IMAGE is non-empty; the app, sync and scorer containers read those keys from their process environment once, at start, so changing one is a restart and never a rebuild. Runtime plane: the organizer changes everything else live in /admin — which modules run, which Secure Development targets run, the event's identity, the scoring schedule, hints and team caps — and each change is written to the single ctf:admin:settings hash in Redis, which the app re-reads on every request and the sync poller re-reads on every tick. The app image itself takes no configuration build-arg at all, so the same image runs every event and a build can no longer ship an empty admins list.</desc>
+  <style>
+    :root {
+      --bg: #ffffff; --surface: #f6f8fa; --surface-2: #eaeef2; --border: #d0d7de;
+      --text-bright: #1f2328; --text: #424a53; --text-muted: #656d76;
+      --accent: #0f7a5a; --accent-2: #0757ba; --accent-3: #8a4b00; --accent-4: #5b32b0;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0d1117; --surface: #161b22; --surface-2: #21262d; --border: #30363d;
+        --text-bright: #f0f6fc; --text: #c9d1d9; --text-muted: #8b949e;
+        --accent: #56d4a4; --accent-2: #58a6ff; --accent-3: #ffa657; --accent-4: #d2a8ff;
+      }
+    }
+    .dgm-flow { stroke-dasharray: 5 5; animation: dgm-flowdash 1.1s linear infinite; }
+    .dgm-ants { stroke-dasharray: 5 5; animation: dgm-antsdash 2.2s linear infinite; }
+    .dgm-gate { animation: dgm-lit 4s ease-in-out infinite; }
+    .dgm-g2 { animation-delay: .35s; }
+    .dgm-g3 { animation-delay: .7s; }
+    .dgm-g4 { animation-delay: 1.05s; }
+    .dgm-g5 { animation-delay: 1.4s; }
+    @keyframes dgm-flowdash { to { stroke-dashoffset: -20; } }
+    @keyframes dgm-antsdash { to { stroke-dashoffset: -20; } }
+    @keyframes dgm-lit {
+      0%, 100% { stroke: var(--border); }
+      10%, 22% { stroke: var(--accent); }
+      40% { stroke: var(--border); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .dgm-flow, .dgm-ants, .dgm-gate { animation: none; }
+    }
+  </style>
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--text-muted)"/>
+    </marker>
+    <marker id="arR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--accent)"/>
+    </marker>
+    <marker id="arB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="var(--accent-2)"/>
+    </marker>
+  </defs>
+
+  <rect width="880" height="420" rx="10" fill="var(--bg)"/>
+  <rect x="0.5" y="0.5" width="879" height="419" rx="10" fill="none" stroke="var(--border)"/>
+
+  <text x="40" y="34" font-size="10" fill="var(--text-muted)" letter-spacing="1">BOOTSTRAP &#183; READ ONCE, AT CONTAINER START</text>
+
+  <rect x="40" y="48" width="230" height="66" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+  <text x="155" y="74" text-anchor="middle" font-size="13" fill="var(--text-bright)">.env</text>
+  <text x="155" y="92" text-anchor="middle" font-size="10" fill="var(--text-muted)">GITHUB_ORG &#183; ADMIN_LOGINS</text>
+  <text x="155" y="106" text-anchor="middle" font-size="10" fill="var(--text-muted)">SCORE_IMAGE &#183; EVENT_URL</text>
+
+  <line class="dgm-flow" x1="274" y1="81" x2="306" y2="81" stroke="var(--text-muted)" marker-end="url(#ar)"/>
+
+  <rect x="314" y="48" width="230" height="66" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+  <text x="429" y="74" text-anchor="middle" font-size="13" fill="var(--text-bright)">docker compose up</text>
+  <text x="429" y="92" text-anchor="middle" font-size="10" fill="var(--text-muted)">--profile secdev iff</text>
+  <text x="429" y="106" text-anchor="middle" font-size="10" fill="var(--text-muted)">SCORE_IMAGE is non-empty</text>
+
+  <line class="dgm-flow" x1="548" y1="81" x2="580" y2="81" stroke="var(--text-muted)" marker-end="url(#ar)"/>
+
+  <rect x="588" y="48" width="252" height="66" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+  <text x="714" y="74" text-anchor="middle" font-size="13" fill="var(--text-bright)">app &#183; sync &#183; scorer</text>
+  <text x="714" y="92" text-anchor="middle" font-size="10" fill="var(--text-muted)">process env, read at start</text>
+  <text x="714" y="106" text-anchor="middle" font-size="10" fill="var(--text-muted)">change one &#8594; restart, not rebuild</text>
+
+  <line x1="40" y1="146" x2="840" y2="146" stroke="var(--border)" stroke-dasharray="2 4"/>
+
+  <text x="40" y="178" font-size="10" fill="var(--text-muted)" letter-spacing="1">RUNTIME &#183; RE-READ ON EVERY REQUEST</text>
+
+  <rect x="40" y="192" width="230" height="66" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+  <text x="155" y="218" text-anchor="middle" font-size="13" fill="var(--text-bright)">/admin</text>
+  <text x="155" y="236" text-anchor="middle" font-size="10" fill="var(--text-muted)">the organizer, live,</text>
+  <text x="155" y="250" text-anchor="middle" font-size="10" fill="var(--text-muted)">during the event</text>
+
+  <line class="dgm-ants" x1="274" y1="225" x2="306" y2="225" stroke="var(--accent)" marker-end="url(#arR)"/>
+
+  <rect class="dgm-gate" x="314" y="192" width="230" height="66" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+  <text x="429" y="218" text-anchor="middle" font-size="13" fill="var(--text-bright)">ctf:admin:settings</text>
+  <text x="429" y="236" text-anchor="middle" font-size="10" fill="var(--text-muted)">one Redis hash &#8212;</text>
+  <text x="429" y="250" text-anchor="middle" font-size="10" fill="var(--text-muted)">the only runtime plane</text>
+
+  <line class="dgm-ants" x1="548" y1="225" x2="580" y2="225" stroke="var(--accent)" marker-end="url(#arR)"/>
+
+  <rect class="dgm-gate dgm-g3" x="588" y="192" width="252" height="66" rx="8" fill="var(--surface)" stroke="var(--border)"/>
+  <text x="714" y="218" text-anchor="middle" font-size="12" fill="var(--text-bright)">app per request &#183; sync per tick</text>
+  <text x="714" y="236" text-anchor="middle" font-size="10" fill="var(--text-muted)">modules &#183; SD targets &#183; identity</text>
+  <text x="714" y="250" text-anchor="middle" font-size="10" fill="var(--text-muted)">schedule &#183; hints &#183; team caps</text>
+
+  <rect x="40" y="292" width="800" height="60" rx="8" fill="var(--surface-2)" stroke="var(--border)"/>
+  <text x="440" y="318" text-anchor="middle" font-size="13" fill="var(--text-bright)">the app image takes no configuration build-arg</text>
+  <text x="440" y="337" text-anchor="middle" font-size="10" fill="var(--text-muted)">the same image runs every event &#8212; a build cannot ship an empty admins list any more</text>
+
+  <text x="40" y="382" font-size="10" fill="var(--text-muted)">there is no config file: nothing sits between these two planes, so nothing can disagree with either.</text>
+  <text x="40" y="398" font-size="10" fill="var(--text-muted)">an empty ADMIN_LOGINS fails closed (nobody is an admin); an unreadable settings hash falls back to defaults.</text>
+</svg>

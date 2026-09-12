@@ -123,18 +123,24 @@ only when you actually need it (no outbound access from the box, or you want
 scores to land the instant a run finishes), and rotate `SCORER_TOKEN` between
 events.
 
-## 7. Audit `admins:` before you open registration
+## 7. Audit `ADMIN_LOGINS` before you open registration
 
-Anyone listed in `event.yaml`'s `admins` can freeze scoring, rewrite module
-settings, seed demo data, and **wipe the event**. Matching is
-case-insensitive on the GitHub login.
+Anyone named in `.env`'s `ADMIN_LOGINS` — and anyone granted admin from the
+panel's Admins tab — can freeze scoring, rewrite module settings, seed demo
+data, and **wipe the event**. Matching is case-insensitive on the GitHub
+login.
 
-Two failure modes worth checking for explicitly:
+Three failure modes worth checking for explicitly:
 
-- **The list is baked at BUILD time** via `EVENT_CONFIG_B64`. Building
-  without it yields an empty `admins` list, so `/admin` 403s for everyone —
-  including you. See [Hosting](hosting.md).
-- A leftover login from a previous event still has full control.
+- **An empty or unset `ADMIN_LOGINS` locks everyone out**, including you:
+  the check fails closed, so `/admin` 403s for every login. It is read at
+  container start, so a fix is an `.env` edit plus a restart, never a
+  rebuild. See [Hosting](hosting.md).
+- A leftover login from a previous event still has full control — check the
+  env list *and* the panel's runtime grants, which survive in Redis across
+  restarts.
+- **A bootstrap admin cannot be revoked from the panel**, by design (it is
+  the lock-out recovery path). Removing one means editing `.env`.
 
 ## 8. Treat `better-auth` upgrades as security changes
 
@@ -184,8 +190,8 @@ Security aside, the checks that save an event, in the order to run them:
   disaster-recovery path, and it contains every answer in plaintext, so
   treat the file like `/admin` access.
 - [ ] Sign in as each organizer and confirm `/admin` loads — this catches a
-  misspelled `admins:` entry and the missing-`EVENT_CONFIG_B64` build in one
-  step.
+  misspelled `ADMIN_LOGINS` entry and a container still running the previous
+  value in one step.
 
 **The morning of:**
 

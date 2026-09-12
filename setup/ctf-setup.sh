@@ -1673,9 +1673,10 @@ cmd_wizard() {
 
   # 8. Bring the containers up.
   #
-  # Compose profiles follow SCORE_IMAGE: `app` always, plus the score-ingest
-  # profile (poll or push — both carry the scorer, which belongs to Secure
-  # Development just as `sync` does) only when this event runs it. An
+  # Compose profiles follow SCORE_IMAGE: `app` always, plus Secure
+  # Development's own profile only when this event runs it — `secdev` in poll
+  # mode (the scorer AND the poller), `push` in push mode (the scorer only:
+  # the fork's Action POSTs to it directly, so there is no poller). An
   # app-only event needs neither: it has nothing to poll and no scorer image
   # to pull, and asking for one would fail the bring-up outright.
   #
@@ -1688,7 +1689,7 @@ cmd_wizard() {
     if [ "$(env_val SCORE_INGEST)" = "push" ]; then
       profiles=(--profile push "${profiles[@]}")
     else
-      profiles=(--profile poll "${profiles[@]}")
+      profiles=(--profile secdev "${profiles[@]}")
     fi
   fi
   echo "  docker compose ${profiles[*]} up -d --build"

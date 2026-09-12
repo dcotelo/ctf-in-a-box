@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Proves a CLASSIC-ONLY event.yaml (modules: { classic: {} }, no
-# secure-development at all) runs a whole event end to end, with no
+# Proves a CLASSIC-ONLY event (the classic module alone switched on in
+# /admin, no secure-development at all) runs a whole event end to end, with no
 # scorer/poll pipeline behind it. This is the standalone-module composition
 # promise (docs/modules.md): a single module must be enough to run an event
 # alone. Sibling of scripts/acceptance-quiz-only.sh — read that file's header
@@ -10,10 +10,12 @@
 # Asserts:
 #   - the compose line-up docs/hosting.md tells a classic-only organizer to
 #     run (`--profile app`) contains no secure-development service — no
-#     scorer to pull, no poller — while the scored line-up still contains both
-#   - the app builds and comes up bound to a classic-only config (remember
-#     EVENT_CONFIG_B64 is a BUILD-time arg — omitting it silently yields
-#     neutral defaults, so this script never calls `docker build` without it)
+#     scorer to pull, no poller — while the secure-development line-up
+#     (`--profile secdev --profile app`, what a non-empty SCORE_IMAGE derives)
+#     still contains both
+#   - the app builds and comes up with NO build-time config at all (config v2,
+#     issue #386: the image takes no config build-arg; which modules run is an
+#     /admin setting in Redis, and GITHUB_ORG/ADMIN_LOGINS are runtime env)
 #   - /flags serves and shows a seeded challenge BY TITLE
 #   - /challenges 404s (module contract §5.4 — the route must not exist, not
 #     just disappear from the nav; this is secure-development's own route,
@@ -79,14 +81,10 @@ NET=ctf-classic-only-acceptance-net
 TMP=$(mktemp -d)
 SRH_TOKEN="classic-only-acceptance-srh-token"
 APP_PORT=3112
-
-CFG="$TMP/event.yaml"
-cat > "$CFG" <<'YAML'
-event: { name: "Classic Only Acceptance", start: 2026-10-01T09:00:00-03:00, end: 2026-10-01T18:00:00-03:00 }
-github: { org: acceptance-classic-org }
-modules:
-  classic: {}
-YAML
+# Runtime env for the app container (config v2, #386) — there is no config
+# file to put these in any more.
+APP_GITHUB_ORG=acceptance-classic-org
+APP_ADMIN_LOGINS=acceptance-classic-admin
 
 SYNC_OVERRIDE="$TMP/docker-compose.sync-override.yml"
 cat > "$SYNC_OVERRIDE" <<'OVERRIDE'
@@ -155,9 +153,9 @@ compose_services() {
     docker compose -f docker-compose.yml "$@" config --services 2>/dev/null | sort | tr '\n' ' '
 }
 CLASSIC_SERVICES=$(compose_services --profile app)
-SCORED_SERVICES=$(compose_services --profile poll --profile app)
+SCORED_SERVICES=$(compose_services --profile secdev --profile app)
 echo "    classic-only (--profile app):         $CLASSIC_SERVICES"
-echo "    scored       (--profile poll + app):  $SCORED_SERVICES"
+echo "    scored       (--profile secdev + app): $SCORED_SERVICES"
 for svc in scorer sync; do
   case " $CLASSIC_SERVICES " in
     *" $svc "*) echo "FAIL: '$svc' is in the classic-only line-up — a classic-only event has no $svc"; exit 1 ;;
@@ -172,7 +170,7 @@ done
 for svc in app redis srh scorer sync; do
   case " $SCORED_SERVICES " in
     *" $svc "*) ;;
-    *) echo "FAIL: '$svc' is missing from the scored (poll) line-up"; exit 1 ;;
+    *) echo "FAIL: '$svc' is missing from the scored (secdev) line-up"; exit 1 ;;
   esac
 done
 
@@ -245,18 +243,19 @@ docker exec co-redis redis-cli HSET ctf:classic:solved "$CONTESTANT_LOGIN" 1 >/d
 docker exec co-redis redis-cli HSET "ctf:classic:solves:$CONTESTANT_LOGIN" "$CHALLENGE_ID" \
   '{"points":'"$CHALLENGE_POINTS"',"at":"2026-08-19T00:00:00.000Z"}' >/dev/null
 
-# Config v2 (#386): modules are switched on in ctf:admin:settings, not by
-# being present in event.yaml. Without this the board is OFF and /flags 404s.
+# Config v2 (#386): modules are switched on in ctf:admin:settings, and that
+# hash is now the ONLY thing that enables one. Without this the board is OFF
+# and /flags 404s.
 docker exec co-redis redis-cli HSET ctf:admin:settings enabledModules classic >/dev/null
 
 # ---------------------------------------------------------------------------
-# Build + boot the app bound to the classic-only config. EVENT_CONFIG_B64 is
-# a BUILD-time arg (apps/web/Dockerfile) — always pass it, never fall through
-# to the neutral-default build.
+# Build + boot the app. NO build-args: config v2 (#386) removed the config
+# bake, so which modules run comes from the Redis hash seeded above and
+# GITHUB_ORG/ADMIN_LOGINS are passed as runtime env below — the same shape
+# scripts/acceptance-app.sh uses.
 # ---------------------------------------------------------------------------
-echo "--- building app with the classic-only event.yaml baked in"
-B64=$(base64 < "$CFG" | tr -d '\n')
-docker build -f apps/web/Dockerfile -t ctf-web:classic-only-acceptance --build-arg EVENT_CONFIG_B64="$B64" .
+echo "--- building app (no build-time config at all)"
+docker build -f apps/web/Dockerfile -t ctf-web:classic-only-acceptance .
 
 echo "--- booting the app"
 docker rm -f co-app >/dev/null 2>&1 || true
@@ -265,6 +264,8 @@ docker run -d --name co-app --network "$NET" -p "$APP_PORT:3000" \
   -e BETTER_AUTH_URL="http://localhost:$APP_PORT" \
   -e UPSTASH_REDIS_REST_URL=http://srh:80 \
   -e UPSTASH_REDIS_REST_TOKEN="$SRH_TOKEN" \
+  -e GITHUB_ORG="$APP_GITHUB_ORG" \
+  -e ADMIN_LOGINS="$APP_ADMIN_LOGINS" \
   ctf-web:classic-only-acceptance >/dev/null
 
 APP_URL="http://localhost:$APP_PORT"
@@ -339,8 +340,8 @@ fi
 # REFUSE at start-up — naming the key, with a non-zero exit — rather than
 # come up and poll nothing.
 # ---------------------------------------------------------------------------
-echo "--- bringing up sync (poll profile) with no GITHUB_ORG"
-sync_compose --profile poll up -d --build --no-deps sync
+echo "--- bringing up sync (secdev profile) with no GITHUB_ORG"
+sync_compose --profile secdev up -d --build --no-deps sync
 
 # `ps -q` (running only) races a fast-exiting container — exactly what this
 # script expects sync to do — and can come back empty even though sync

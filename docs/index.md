@@ -133,9 +133,9 @@ stock upstream image and fails if anything scores above zero
 
 ## Quickstart
 
-The full, canonical sequence — tooling check, scorer image, the sync GitHub
-App, the sign-in OAuth app, org provisioning, and bringing up the box with the
-required `EVENT_CONFIG_B64` build arg — lives in
+The full, canonical sequence — tooling check, scorer image, the four `.env`
+bootstrap keys, the sync GitHub App, the sign-in OAuth app, org provisioning,
+and bringing the box up — lives in
 [Hosting → Quickstart: zero to a scored event](hosting.md#quickstart-zero-to-a-scored-event).
 
 Poll mode is the default and needs no inbound network access — nothing has to
@@ -164,8 +164,8 @@ in one place.</sup>
 
 ## Organizer admin panel
 
-Anyone in `event.yaml`'s `admins` list can sign in and reach `/admin` — and
-from there **grant admin to anyone else**, without a rebuild. The panel is
+Anyone named in `.env`'s `ADMIN_LOGINS` can sign in and reach `/admin` — and
+from there **grant admin to anyone else**, without a restart. The panel is
 tabbed: **Event** (freeze, registration, the scoring and registration
 schedules, players per team, the score cooldown, demo seed, master reset),
 **Admins**, **Support**, **Activity**, **Insights**, then one tab per enabled
@@ -201,8 +201,8 @@ Pick the doc for what you're doing right now:
 
 - [Hosting](hosting.md) — the guided wizard, prerequisites, poll vs push, the
   GitHub OAuth app, and event config.
-- [Deploy on AWS](aws.md) — single-shot Terraform deploy on one ephemeral EC2
-  box (`apply` up, `destroy` down).
+- [Deploy on AWS](aws.md) — single-shot Terraform deploy onto ECS Fargate with
+  ElastiCache behind an ALB (`apply` up, `destroy` down).
 - [Deploy on fly.io](fly.md) — the whole stack as one Fly machine, running the
   repo's own `docker-compose.yml`, no box to administer (`deploy.sh` up,
   `fly apps destroy` down).

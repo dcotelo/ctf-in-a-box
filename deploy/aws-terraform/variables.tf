@@ -96,13 +96,50 @@ variable "acm_certificate_arn" {
 
 // --- what this event runs --------------------------------------------------
 
-variable "event_yaml_b64" {
-  description = "base64 of event.yaml. BAKED INTO THE APP IMAGE at build time, not read here — deploy.sh passes it to the build. Kept as a required input so the module refuses to describe a stack whose image was built without it."
+variable "github_org" {
+  description = "The GitHub org the target forks live in. Read by the app and by sync at runtime (config v2, #386) — mirrored into both task definitions like scorer_image. Empty is legal only for an event that does not run Secure Development: the app then falls back to bare repo names. Required whenever enable_secure_development is true, in BOTH ingest modes."
   type        = string
+  default     = ""
 
+  // Tied to enable_secure_development, not to the ingest mode, because the
+  // org is what the module IS: `setup/ctf-setup.sh` requires GITHUB_ORG for
+  // every non-empty SCORE_IMAGE, poll or push. In poll mode sync/src/config.js
+  // throws at startup rather than treating a blank GITHUB_ORG as "nothing to
+  // poll"; in push mode nothing throws, and that is the worse failure — the
+  // scorer runs, the app renders bare repo names, and /challenges links every
+  // contestant at a fork that has no org to live in. Left unset either way it
+  // would be a plan-time silence; this turns it into the same plan-time
+  // sentence scorer_image/sync_image already get.
+  // trimspace, for admin_logins' reason: a value that is not empty is not
+  // therefore a GitHub org. `" "` would pass `!= ""`, reach both task
+  // definitions as-is, and name a fork path nothing can resolve.
   validation {
-    condition     = length(var.event_yaml_b64) > 0
-    error_message = "event_yaml_b64 is required: an app image built without it silently has an empty admins list, so /admin 403s for everyone (see AGENTS.md)."
+    condition     = !var.enable_secure_development || trimspace(var.github_org) != ""
+    error_message = "github_org must name a GitHub org when Secure Development is enabled, in either ingest mode — blank or whitespace-only will not do: sync exits at startup without a usable GITHUB_ORG (see sync/src/config.js), and push mode leaves the app with no org to build fork links from."
+  }
+}
+
+variable "admin_logins" {
+  description = "Comma-separated GitHub logins allowed into /admin. REQUIRED — every event needs at least one admin. Read by the app at runtime (config v2, #386) — mirrored into the app task definition like scorer_image."
+  type        = string
+  default     = ""
+
+  // UNCONDITIONAL, unlike github_org's rule above: there is no event shape
+  // that wants an empty admin roster. This string IS the /admin allowlist, so
+  // an empty one locks every login out of the panel — including whoever ran
+  // the apply, and including the settings page that is the only way to open
+  // registration, unpause scoring or archive the event. The lockout shows up
+  // as a 403 long after a clean apply, and the only fix is another apply.
+  // docs/hosting.md lists ADMIN_LOGINS as required for the same reason.
+  //
+  // The `default = ""` stays so the refusal is THIS sentence rather than a
+  // bare interactive prompt for an unset variable in a non-interactive plan.
+  // A non-empty STRING is not a non-empty roster: " , " passes `!= ""` and
+  // then splits into nothing but blanks, which is the same lockout with a
+  // longer variable. The rule counts actual logins.
+  validation {
+    condition     = length(compact([for login in split(",", var.admin_logins) : trimspace(login)])) > 0
+    error_message = "admin_logins must name at least one GitHub login — a list of blanks (or an empty one) leaves /admin forbidding everyone, including whoever ran the apply."
   }
 }
 

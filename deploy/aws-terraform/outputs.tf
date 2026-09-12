@@ -60,7 +60,7 @@ output "next_steps" {
 
        (REDIS_AUTH_TOKEN and SRH_CONNECTION_STRING are written there by
        Terraform, already under that key.)
-    2. Build and push the app image with event.yaml baked in:  ./deploy.sh
+    2. Build and push the app image:  ./deploy.sh
     3. If you did not set route53_zone_id, point ${var.domain} at ${aws_lb.main.dns_name}
     4. Set the OAuth app callback to ${local.event_url}/api/auth/callback/github
     5. Tear the event down when it ends:  terraform destroy

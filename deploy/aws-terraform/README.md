@@ -131,13 +131,13 @@ Both are created by one targeted apply:
 
 ```sh
 cd deploy/aws-terraform
-cp terraform.tfvars.example terraform.tfvars    # then edit: domain, event_yaml_b64
+cp terraform.tfvars.example terraform.tfvars    # then edit: domain, github_org, admin_logins
 terraform init
 terraform apply \
   -target=aws_ecr_repository.main \
   -target=aws_kms_alias.secrets                 # the registry and the secrets key
 #   ... now run step 3's put-parameter commands, with --key-id ...
-./deploy.sh                                     # build with event.yaml baked in, push
+./deploy.sh                                     # build, push
 terraform apply                                 # the rest of the stack
 ```
 
@@ -153,28 +153,43 @@ Afterwards a redeploy is one command:
 ./deploy.sh --apply
 ```
 
-`deploy.sh` owns the **build-time config bake**. The app image bakes
-`event.yaml` via `EVENT_CONFIG_B64`; an image built without it ships an empty
-`admins` list, so `/admin` 403s for everyone and generic branding appears — the
-most expensive mistake this kit has. Terraform cannot build an image, which is
-why this is a script and not an `apply`.
+`deploy.sh` builds and pushes the image; Terraform cannot build one, which is
+why this is a script and not an `apply`. The app takes no build-time
+configuration at all (config v2, #386): `github_org` and `admin_logins` are
+plain Terraform variables, mirrored into the app's task-definition environment
+the same way `scorer_image` is — `terraform.tfvars` is this path's equivalent
+of the wizard's `.env`. Change either and roll it out with `terraform apply`;
+nothing needs rebuilding.
 
-The tag is content-addressed — `<revision>-<config-hash>` — and the ECR
-repository is `IMMUTABLE`. Same code plus same config gives the same tag, so a
-re-run reports "already there" and skips the build rather than failing. Change
-either half and the tag changes with it. `deploy.sh --dry-run` prints every
-command and runs none of them.
+The tag is content-addressed to the git revision, and the ECR repository is
+`IMMUTABLE`. Same code gives the same tag, so a re-run reports "already there"
+and skips the build rather than failing. A dirty `apps/web` tree is tagged
+`<revision>-dirty-<digest>`, where the digest is taken over the uncommitted
+build context: change the tracked diff, or the set or contents of the
+untracked, non-ignored **build-input** files under `apps/web` — `node_modules`
+and `.next` are excluded, as is anything else the ignore rules exclude — and
+the tag changes with it. A symlink counts as its target string, the way
+`docker build` sends it. That is what keeps a work-in-progress deploy from
+landing on the tag an earlier one already pushed — which, on an immutable
+registry, would have redeployed the earlier image. `deploy.sh --dry-run` prints every command and runs none of them.
 
 ## Variables
 
 Every input is in `variables.tf` with its own description;
-`terraform.tfvars.example` shows each at its default. Only three have none:
+`terraform.tfvars.example` shows each at its default. Three are required:
 
 | Variable | Why it is required |
 |---|---|
 | `domain` | The session cookie is `Secure`. There is no working HTTP mode. |
-| `event_yaml_b64` | Not read by Terraform — required so the module refuses to describe a stack whose image was built without a config. |
 | `app_image` | What ECS runs. `deploy.sh` writes it into `image.auto.tfvars`; the example carries a placeholder for the bootstrap apply. |
+| `admin_logins` | The `/admin` allowlist. Its `validation` block refuses a roster with no login at plan time — empty, or nothing but separators like `" , "` — because that would forbid everyone, you included, and the only fix is another apply. |
+
+`github_org` and `admin_logins` are read at runtime, not baked into the image.
+`github_org` defaults to `""` and is legal empty only for an event that does
+not run Secure Development — the app then falls back to bare repo names. With
+`enable_secure_development = true` its own `validation` block requires it in
+**both** ingest modes: poll mode's sync exits at startup without one, and push
+mode would run a scorer whose forks have no org for the app to link to.
 
 ## Tear down
 

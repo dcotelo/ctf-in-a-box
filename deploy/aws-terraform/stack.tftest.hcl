@@ -116,10 +116,11 @@ mock_provider "random" {
 variables {
   domain          = "ctf.example.org"
   route53_zone_id = "Z0123456789ABCDEFGHIJ"
-  event_yaml_b64  = "ZXZlbnQ6CiAgbmFtZTogVGVzdAo="
   app_image       = "123456789012.dkr.ecr.us-east-1.amazonaws.com/owasp-ctf-app:v1"
   scorer_image    = "ghcr.io/example/scorer:v1"
   sync_image      = "ghcr.io/example/sync:v1"
+  github_org      = "owasp-ctf-test"
+  admin_logins    = "octocat,defunkt"
 }
 
 // --- the input contracts, each one refused at PLAN time --------------------
@@ -165,6 +166,69 @@ run "poll_mode_without_a_sync_image_is_refused" {
   expect_failures = [var.sync_image]
 }
 
+// github_org's rule follows enable_secure_development, NOT the ingest mode:
+// setup/ctf-setup.sh requires GITHUB_ORG for every non-empty SCORE_IMAGE. In
+// poll mode sync exits at startup without one (sync/src/config.js); in push
+// mode nothing exits, and the app quietly renders fork links with no org.
+// Both modes are asserted, because a rule that only covered poll would look
+// identical on the poll run alone.
+run "poll_mode_without_a_github_org_is_refused" {
+  command = plan
+
+  variables {
+    enable_secure_development = true
+    score_ingest              = "poll"
+    github_org                = ""
+  }
+
+  expect_failures = [var.github_org]
+}
+
+run "push_mode_without_a_github_org_is_refused_too" {
+  command = plan
+
+  variables {
+    enable_secure_development = true
+    score_ingest              = "push"
+    sync_image                = ""
+    github_org                = ""
+  }
+
+  expect_failures = [var.github_org]
+}
+
+// Not empty is not the same as set: `" "` reaches both task definitions
+// verbatim and names a fork path nothing resolves. Same shape as the
+// admin_logins blank-roster run.
+run "a_whitespace_only_github_org_is_refused" {
+  command = plan
+
+  variables {
+    enable_secure_development = true
+    github_org                = " "
+  }
+
+  expect_failures = [var.github_org]
+}
+
+// The complement: push mode WITH an org plans cleanly, so the rule above
+// cannot be satisfied by refusing push mode outright.
+run "push_mode_with_a_github_org_is_accepted" {
+  command = plan
+
+  variables {
+    enable_secure_development = true
+    score_ingest              = "push"
+    sync_image                = ""
+    github_org                = "owasp-ctf-test"
+  }
+
+  assert {
+    condition     = length(aws_ecs_service.scorer) == 1
+    error_message = "A push-mode event with an org must still run the scorer."
+  }
+}
+
 // The complement of the run above, and the reason sync_image's rule is
 // narrower than scorer_image's: push mode has the fork's Action POST to the
 // scorer directly, so there is no poller and no image to demand. Without this
@@ -182,6 +246,32 @@ run "push_mode_needs_no_sync_image" {
     condition     = length(aws_ecs_service.sync) == 0
     error_message = "Push mode runs no poller, so it must not require a sync image."
   }
+}
+
+// admin_logins' rule is UNCONDITIONAL, which is what separates it from the
+// two above: no event shape wants an empty admin roster. The string is the
+// /admin allowlist itself, so an empty one is a stack nobody can administer —
+// a 403 discovered after a clean apply, fixable only by another apply.
+run "an_event_with_no_admin_logins_is_refused" {
+  command = plan
+
+  variables {
+    admin_logins = ""
+  }
+
+  expect_failures = [var.admin_logins]
+}
+
+// The same lockout, spelled so that a `!= ""` rule would wave it through: a
+// roster of separators splits into nothing but blanks.
+run "an_admin_roster_of_blanks_is_refused" {
+  command = plan
+
+  variables {
+    admin_logins = " , "
+  }
+
+  expect_failures = [var.admin_logins]
 }
 
 run "an_event_with_no_certificate_source_is_refused" {
@@ -225,6 +315,34 @@ run "secure_development_event_runs_scorer_and_sync" {
     ])
     error_message = "app container must receive SCORE_IMAGE so the default module set matches the deployment"
   }
+
+  // Config v2 (#386): no build-time bake. GITHUB_ORG and ADMIN_LOGINS are
+  // runtime environment reads, mirrored into the task definitions like
+  // SCORE_IMAGE above — this is the assertion `terraform validate` cannot
+  // make on its own, since it never inspects the rendered container JSON.
+  assert {
+    condition = anytrue([
+      for e in jsondecode(aws_ecs_task_definition.app.container_definitions)[0].environment :
+      e.name == "GITHUB_ORG" && e.value == var.github_org
+    ])
+    error_message = "app container must receive GITHUB_ORG, or forks resolve to bare repo names."
+  }
+
+  assert {
+    condition = anytrue([
+      for e in jsondecode(aws_ecs_task_definition.app.container_definitions)[0].environment :
+      e.name == "ADMIN_LOGINS" && e.value == var.admin_logins
+    ])
+    error_message = "app container must receive ADMIN_LOGINS, or /admin 403s for everyone."
+  }
+
+  assert {
+    condition = anytrue([
+      for e in jsondecode(aws_ecs_task_definition.sync[0].container_definitions)[0].environment :
+      e.name == "GITHUB_ORG" && e.value == var.github_org
+    ])
+    error_message = "sync container must receive GITHUB_ORG too — sync/src/config.js refuses to start without one."
+  }
 }
 
 // Final-review finding #3 (issue #386): the app must never receive a
@@ -266,7 +384,7 @@ run "push_mode_runs_no_poller" {
   }
 
   assert {
-    // sync carries the ["poll"] profile alone: in push mode there is nothing
+    // sync carries the ["secdev"] profile alone: in push mode there is nothing
     // to poll, and a running poller would be a second ingest path.
     condition     = length(aws_ecs_service.sync) == 0
     error_message = "Push mode must run no sync: the fork POSTs directly, so there is nothing to poll."
@@ -306,18 +424,6 @@ run "a_floating_srh_tag_is_refused" {
   }
 
   expect_failures = [var.srh_image]
-}
-
-run "a_missing_event_config_is_refused" {
-  command = plan
-
-  variables {
-    event_yaml_b64 = ""
-  }
-
-  // An app image built without it silently has an empty admins list, so
-  // /admin 403s for everyone. Failing here beats discovering that at the door.
-  expect_failures = [var.event_yaml_b64]
 }
 
 run "snapshots_cannot_be_turned_off" {

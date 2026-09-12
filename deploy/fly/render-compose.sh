@@ -14,7 +14,9 @@
 #
 #   * `profiles:`            — every service in the file is deployed
 #   * `${VAR}` interpolation — `${SRH_TOKEN}` arrives as that literal string
-#   * build `args:`          — so EVENT_CONFIG_B64 could never be baked
+#   * build `args:`          — irrelevant here anyway: Fly builds nothing (see
+#                              deploy.sh's step 2/5), so no image is ever
+#                              built through this path
 #
 # and it rejects a file where more than one service declares `build:`
 # ("only one service can specify build"), which docker-compose.yml does twice.
@@ -37,8 +39,8 @@
 #      the machine config carries no `secrets` key at all. Every container came
 #      up without its credentials while `fly secrets list` showed all fourteen
 #      as `Deployed` — the app answering 500 from better-auth's default-secret
-#      error, the scorer refusing to start, sync falling back to a mounted
-#      event.yaml that does not exist on a Fly machine.
+#      error, the scorer refusing to start, and sync refusing to poll with no
+#      org or token to poll with.
 #
 #      The compensation is real, though: per-service scoping that Fly's global
 #      secrets cannot express. The app never receives REDIS_PASSWORD, and redis
@@ -52,7 +54,9 @@
 #      client is IPv4-only and Fly's private network is IPv6-only, so reaching
 #      redis over loopback is the only arrangement srh can connect through.
 #   4. Host bind mounts are dropped. A Fly machine has no repo checkout to bind
-#      FROM. sync's event.yaml arrives through EVENT_CONFIG_B64 instead.
+#      FROM. Nothing among app, scorer, sync, srh or redis declares one — the
+#      only bind mount in docker-compose.yml belongs to caddy, which SERVICES
+#      already excludes (Fly terminates TLS itself; see below).
 #   5. Named volumes and networks are dropped. Fly ignores both; volumes are
 #      declared as `[[mounts]]` in fly.toml, and a single machine has no
 #      networks to join.
@@ -63,25 +67,39 @@ OUT=""
 APP_IMAGE=""
 SYNC_IMAGE=""
 SCORER_IMAGE=""
-EVENT_CONFIG=""
-# The services that go to Fly. Named explicitly rather than filtered out later:
-# `docker compose config SERVICE...` limits the output to these, which is how
-# caddy is excluded WITHOUT giving it a profile. Fly terminates TLS itself, so
-# caddy has no job there — and profiling it would have made the edge opt-in for
-# every local bring-up, turning a forgotten flag into an event with no ingress.
-SERVICES="app scorer sync srh redis"
-# Compose profiles to select with. Poll mode is the documented default.
-PROFILES="--profile poll --profile app"
+# The services that go to Fly. Named explicitly rather than filtered out with
+# `--profile` alone: `docker compose config SERVICE...` is how caddy is
+# excluded WITHOUT giving it a profile (Fly terminates TLS itself, so caddy has
+# no job there, and profiling it would have made the edge opt-in for every
+# local bring-up, turning a forgotten flag into an event with no ingress).
+#
+# Both left empty here on purpose: naming a service explicitly on this command
+# line makes `docker compose config` include it REGARDLESS of `--profile`
+# (compose enables whatever profile a named service needs on its own) — so
+# `scorer`/`sync` cannot be left in SERVICES unconditionally and still be
+# excluded by PROFILES omitting `secdev`. Both are DERIVED below from
+# SCORE_IMAGE in ENV_FILE together, the same one answer every other entry
+# point uses (scripts/dev-stack, docker-compose.yml's scorer comment).
+# Passing --services/--profiles explicitly still overrides the derivation.
+SERVICES=""
+PROFILES=""
 
 usage() {
   cat <<'EOF'
 usage: deploy/fly/render-compose.sh --out FILE [--env-file .env.fly]
                                     --app-image REF --sync-image REF
-                                    --scorer-image REF [--event-config event.yaml]
+                                    --scorer-image REF
                                     [--services "a b c"]
-                                    [--profiles "--profile poll --profile app"]
+                                    [--profiles "--profile secdev --profile app"]
 
 Renders docker-compose.yml to a Fly-deployable compose file.
+
+Without --profiles/--services, both are derived from ENV_FILE together:
+`app srh redis` and `--profile app` always, plus `scorer sync` and
+`--profile secdev` iff SCORE_IMAGE is non-empty there. Fly's own deploy.sh
+always requires SCORE_IMAGE (it has no other route to a scorer), so in
+practice this always renders secdev too — the derivation lives here so a
+future relaxation of that requirement is a one-line change.
 
 THE OUTPUT IS A CREDENTIAL FILE: mode 600, and refused unless gitignored.
 Per-container `environment:` is the only channel that reaches a container in a
@@ -97,7 +115,6 @@ while [ $# -gt 0 ]; do
     --app-image) APP_IMAGE="$2"; shift 2 ;;
     --sync-image) SYNC_IMAGE="$2"; shift 2 ;;
     --scorer-image) SCORER_IMAGE="$2"; shift 2 ;;
-    --event-config) EVENT_CONFIG="$2"; shift 2 ;;
     --services) SERVICES="$2"; shift 2 ;;
     --profiles) PROFILES="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -125,29 +142,77 @@ case "$OUT" in
   /*) ;;
   *) OUT="$PWD/$OUT" ;;
 esac
-case "$EVENT_CONFIG" in
-  ""|/*) ;;
-  *) EVENT_CONFIG="$PWD/$EVENT_CONFIG" ;;
-esac
+
+# Derive PROFILES and SERVICES from ENV_FILE when the caller did not pass
+# --profiles / --services.
+#
+# `app` runs always; `secdev` (the scorer and sync containers) is added iff
+# SCORE_IMAGE is non-empty there — the same rule scripts/dev-stack applies to
+# a local bring-up, so "does this event run Secure Development" is answered
+# once, from one key, never from a second knob (config v2, #386). Read
+# straight out of the file rather than the shell environment: this script has
+# no other reason to see SCORE_IMAGE, and the value that matters is the one
+# the rendered compose file will actually be built from.
+#
+# SERVICES has to track the same decision (see the comment above its
+# declaration): naming scorer/sync unconditionally would render them even
+# with `--profile app` only, since compose enables a named service's profile
+# on its own.
+#
+# The value is read with COMPOSE's .env semantics, not a bare `sed`, because
+# the same file is about to be handed to `docker compose --env-file`: to
+# compose, `SCORE_IMAGE=""` is empty, while a bare sed hands back the
+# two-character string `""` — and this renderer would then add secdev, and
+# render a scorer and a sync, for an app-only event.
+dotenv_value() {
+  local v="$1"
+  v="${v#"${v%%[![:space:]]*}"}"
+  case "$v" in
+  '"'*)
+    # Quoted: the value ends at the closing quote, and `#` inside it is data.
+    v="${v#\"}"
+    v="${v%%\"*}"
+    ;;
+  "'"*)
+    v="${v#\'}"
+    v="${v%%\'*}"
+    ;;
+  *)
+    # Unquoted: a comment starts at the first whitespace-preceded `#`.
+    case "$v" in
+    *[[:space:]]#*) v="${v%%[[:space:]]#*}" ;;
+    esac
+    v="${v%"${v##*[![:space:]]}"}"
+    ;;
+  esac
+  printf '%s' "$v"
+}
+
+env_value() {
+  # `KEY = value` is legal too: compose's parser trims whitespace around the
+  # key and after the `=`, and hands back `value`. Matching only `KEY=` made
+  # such a line invisible here — deploy.sh called the key empty and refused,
+  # render-compose.sh dropped secdev — while compose read it fine.
+  dotenv_value "$(sed -n "s/^[[:space:]]*$1[[:space:]]*[:=][[:space:]]*//p" "$ENV_FILE" | tail -1)"
+}
+
+if [ -z "$PROFILES" ]; then
+  PROFILES="--profile app"
+  SCORE_IMAGE_VAL="$(env_value SCORE_IMAGE)"
+  if [ -n "$SCORE_IMAGE_VAL" ]; then
+    PROFILES="$PROFILES --profile secdev"
+  fi
+fi
+if [ -z "$SERVICES" ]; then
+  SERVICES="app srh redis"
+  case "$PROFILES" in
+    *secdev*) SERVICES="$SERVICES scorer sync" ;;
+  esac
+fi
 
 cd "$(dirname "$0")/../.."
 
 command -v docker >/dev/null || { echo "FAIL: docker is required to render the compose file" >&2; exit 1; }
-
-# EVENT_CONFIG_B64 comes in through the ENVIRONMENT, not the env file.
-#
-# sync reads it at start-up (a Fly machine has no ./event.yaml to bind-mount),
-# and the app has already baked it at build time. It is a multi-kilobyte blob
-# derived from event.yaml on every run, so keeping it out of .env.fly avoids a
-# second copy that can silently go stale against the file it came from.
-#
-# A shell variable beats --env-file in compose's precedence order, which is
-# what makes this work even if someone does put it in the env file.
-if [ -n "$EVENT_CONFIG" ]; then
-  [ -f "$EVENT_CONFIG" ] || { echo "FAIL: no $EVENT_CONFIG to read the event config from" >&2; exit 1; }
-  EVENT_CONFIG_B64="$(base64 < "$EVENT_CONFIG" | tr -d '\n')"
-  export EVENT_CONFIG_B64
-fi
 
 # shellcheck disable=SC2086
 # PROFILES and SERVICES are deliberately word-split: both are lists of

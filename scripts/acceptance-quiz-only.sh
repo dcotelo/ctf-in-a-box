@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-# Proves a QUIZ-ONLY event.yaml (modules: { quiz: {} }, no secure-development
-# at all) runs a whole event end to end, with no scorer/poll pipeline behind
-# it. This is the standalone-module composition promise (docs/modules.md):
-# a single module must be enough to run an event alone.
+# Proves a QUIZ-ONLY event (the quiz module alone switched on in /admin, no
+# secure-development at all) runs a whole event end to end, with no
+# scorer/poll pipeline behind it. This is the standalone-module composition
+# promise (docs/modules.md): a single module must be enough to run an event
+# alone.
 #
 # Asserts:
 #   - the compose line-up docs/hosting.md tells a quiz-only organizer to run
 #     (`--profile app`) contains no secure-development service — no scorer to
-#     pull, no poller — while the scored line-up still contains both
-#   - the app builds and comes up bound to a quiz-only config (remember
-#     EVENT_CONFIG_B64 is a BUILD-time arg — omitting it silently yields
-#     neutral defaults, so this script never calls `docker build` without it)
+#     pull, no poller — while the secure-development line-up (`--profile
+#     secdev --profile app`, what a non-empty SCORE_IMAGE derives) still
+#     contains both
+#   - the app builds and comes up with NO build-time config at all (config v2,
+#     issue #386: the image takes no config build-arg; which modules run is an
+#     /admin setting in Redis, and GITHUB_ORG/ADMIN_LOGINS are runtime env)
 #   - /quiz serves and shows a seeded question BY NAME
 #   - /challenges 404s (module contract §5.4 — the route must not exist, not
 #     just disappear from the nav; apps/web already pins this at the unit
@@ -62,14 +65,10 @@ NET=ctf-quiz-only-acceptance-net
 TMP=$(mktemp -d)
 SRH_TOKEN="quiz-only-acceptance-srh-token"
 APP_PORT=3110
-
-CFG="$TMP/event.yaml"
-cat > "$CFG" <<'YAML'
-event: { name: "Quiz Only Acceptance", start: 2026-10-01T09:00:00-03:00, end: 2026-10-01T18:00:00-03:00 }
-github: { org: acceptance-quiz-org }
-modules:
-  quiz: {}
-YAML
+# Runtime env for the app container (config v2, #386) — there is no config
+# file to put these in any more.
+APP_GITHUB_ORG=acceptance-quiz-org
+APP_ADMIN_LOGINS=acceptance-quiz-admin
 
 SYNC_OVERRIDE="$TMP/docker-compose.sync-override.yml"
 cat > "$SYNC_OVERRIDE" <<'OVERRIDE'
@@ -139,9 +138,9 @@ compose_services() {
     docker compose -f docker-compose.yml "$@" config --services 2>/dev/null | sort | tr '\n' ' '
 }
 QUIZ_SERVICES=$(compose_services --profile app)
-SCORED_SERVICES=$(compose_services --profile poll --profile app)
+SCORED_SERVICES=$(compose_services --profile secdev --profile app)
 echo "    quiz-only (--profile app):            $QUIZ_SERVICES"
-echo "    scored    (--profile poll + app):     $SCORED_SERVICES"
+echo "    scored    (--profile secdev + app):   $SCORED_SERVICES"
 for svc in scorer sync; do
   case " $QUIZ_SERVICES " in
     *" $svc "*) echo "FAIL: '$svc' is in the quiz-only line-up — a quiz-only event has no $svc"; exit 1 ;;
@@ -156,7 +155,7 @@ done
 for svc in app redis srh scorer sync; do
   case " $SCORED_SERVICES " in
     *" $svc "*) ;;
-    *) echo "FAIL: '$svc' is missing from the scored (poll) line-up"; exit 1 ;;
+    *) echo "FAIL: '$svc' is missing from the scored (secdev) line-up"; exit 1 ;;
   esac
 done
 
@@ -222,18 +221,19 @@ docker exec qo-redis redis-cli HSET "ctf:quiz:answers:$CONTESTANT_LOGIN" "$QUEST
 docker exec qo-redis redis-cli HSET ctf:quiz:points "$CONTESTANT_LOGIN" "$CONTESTANT_POINTS" >/dev/null
 docker exec qo-redis redis-cli HSET ctf:quiz:answered "$CONTESTANT_LOGIN" 1 >/dev/null
 
-# Config v2 (#386): modules are switched on in ctf:admin:settings, not by
-# being present in event.yaml. Without this the board is OFF and /quiz 404s.
+# Config v2 (#386): modules are switched on in ctf:admin:settings, and that
+# hash is now the ONLY thing that enables one. Without this the board is OFF
+# and /quiz 404s.
 docker exec qo-redis redis-cli HSET ctf:admin:settings enabledModules quiz >/dev/null
 
 # ---------------------------------------------------------------------------
-# Build + boot the app bound to the quiz-only config. EVENT_CONFIG_B64 is a
-# BUILD-time arg (apps/web/Dockerfile) — always pass it, never fall through
-# to the neutral-default build.
+# Build + boot the app. NO build-args: config v2 (#386) removed the config
+# bake, so which modules run comes from the Redis hash seeded above and
+# GITHUB_ORG/ADMIN_LOGINS are passed as runtime env below — the same shape
+# scripts/acceptance-app.sh uses.
 # ---------------------------------------------------------------------------
-echo "--- building app with the quiz-only event.yaml baked in"
-B64=$(base64 < "$CFG" | tr -d '\n')
-docker build -f apps/web/Dockerfile -t ctf-web:quiz-only-acceptance --build-arg EVENT_CONFIG_B64="$B64" .
+echo "--- building app (no build-time config at all)"
+docker build -f apps/web/Dockerfile -t ctf-web:quiz-only-acceptance .
 
 echo "--- booting the app"
 docker rm -f qo-app >/dev/null 2>&1 || true
@@ -242,6 +242,8 @@ docker run -d --name qo-app --network "$NET" -p "$APP_PORT:3000" \
   -e BETTER_AUTH_URL="http://localhost:$APP_PORT" \
   -e UPSTASH_REDIS_REST_URL=http://srh:80 \
   -e UPSTASH_REDIS_REST_TOKEN="$SRH_TOKEN" \
+  -e GITHUB_ORG="$APP_GITHUB_ORG" \
+  -e ADMIN_LOGINS="$APP_ADMIN_LOGINS" \
   ctf-web:quiz-only-acceptance >/dev/null
 
 APP_URL="http://localhost:$APP_PORT"
@@ -324,8 +326,8 @@ fi
 # REFUSE at start-up — naming the key, with a non-zero exit — rather than
 # come up and poll nothing.
 # ---------------------------------------------------------------------------
-echo "--- bringing up sync (poll profile) with no GITHUB_ORG"
-sync_compose --profile poll up -d --build --no-deps sync
+echo "--- bringing up sync (secdev profile) with no GITHUB_ORG"
+sync_compose --profile secdev up -d --build --no-deps sync
 
 # `ps -q` (running only) races a fast-exiting container — exactly what this
 # script expects sync to do — and can come back empty even though sync
