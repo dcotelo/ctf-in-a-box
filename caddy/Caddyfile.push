@@ -1,3 +1,9 @@
+# DEPRECATED (issue #377): this is the push score-ingest variant, mounted when
+# SCORE_INGEST=push. Push is deprecated in v0.6 and REMOVED in v0.7, together
+# with this file and the `push` compose profile — poll is the score transport
+# for secure-development, and Caddyfile.poll exposes no /score route at all.
+# Until then this file keeps working unchanged; the headers below must stay
+# identical to Caddyfile.poll's (AGENTS.md).
 {$EVENT_HOST}
 
 # Baseline security headers. HSTS only bites on HTTPS (Caddy auto-provisions TLS
