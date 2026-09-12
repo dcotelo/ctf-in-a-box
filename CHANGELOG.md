@@ -17,11 +17,13 @@ repo-level — `apps/web/package.json` tracks the current tag; `scorer` and
   now names every external-system key the two files disagree on — before the
   build and again in the closing summary, key names only, never a value — and
   warns rather than refuses, since per-environment OAuth apps are legitimate.
-  `init --refresh` gained three fixes of its own: a blank
-  `GITHUB_APP_INSTALLATION_ID` in `.env` now **clears** the pinned id (that
-  blank means "let `sync` auto-discover the installation"), while a blank of
-  any other key keeps the deployed value and says why rather than locking
-  everyone out of `/admin`; the source is read in every form `docker compose`
+  `init --refresh` gained three fixes of its own: an explicitly blank
+  `GITHUB_APP_INSTALLATION_ID=` line in `.env` now **clears** the pinned id
+  (that blank means "let `sync` auto-discover the installation"), while an
+  explicit blank of any other key keeps the deployed value and says why rather
+  than locking everyone out of `/admin`, and a key absent from `.env`
+  altogether keeps the deployed value for every key including the installation
+  id; the source is read in every form `docker compose`
   accepts (`KEY = value`, `KEY: value`, quoted, `export`-prefixed) instead of
   `KEY=value` alone; and a line in any of those forms is now replaced in place
   rather than having a second assignment appended. Both `init` and a deploy

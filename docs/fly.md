@@ -90,8 +90,8 @@ Each value is read from `.env` in every form `docker compose` accepts —
 `KEY=value`, `KEY = value`, `KEY: value`, a quoted value, a leading
 `export ` — and written back as a canonical `KEY=value` line, replacing the
 existing assignment whatever form *it* took rather than appending a second one.
-Which blank values it obeys, and what it does about a key assigned twice, are
-below.
+Which blank assignments it obeys, why a key absent from `.env` is left alone,
+and what it does about a key assigned twice, are below.
 
 A deploy refuses outright — naming the key — if `GITHUB_ORG` or
 `ADMIN_LOGINS` is empty in `.env.fly`. Neither fails loudly on the machine:
@@ -118,20 +118,28 @@ image and then deploy with `--skip-build` and the machine either keeps running
 the *previous* scorer or is handed a tag Fly does not have. After changing
 `SCORE_IMAGE`, run a normal `./deploy/fly/deploy.sh` once.
 
-### A blank value in `.env` clears one key, and only one
+### An explicitly blank value in `.env` clears one key, and only one
 
-**`GITHUB_APP_INSTALLATION_ID` is the exception: blank in `.env` clears it in
-`.env.fly`.** An empty installation id tells `sync` to discover the
-installation itself, so once the sync App has been re-created a *pinned* id
-left behind here is not stale-but-working — it is a permanent
-`GitHub 401 minting installation token` on every poll.
+**`GITHUB_APP_INSTALLATION_ID` is the exception: an explicitly blank
+`GITHUB_APP_INSTALLATION_ID=` line in `.env` clears it in `.env.fly`.** An
+empty installation id tells `sync` to discover the installation itself, so
+once the sync App has been re-created a *pinned* id left behind here is not
+stale-but-working — it is a permanent `GitHub 401 minting installation token`
+on every poll.
 
-**Every other refreshed key keeps its `.env.fly` value when `.env` is blank,
-and says so.** A refresh cannot tell "deliberately unset" from "not filled in
-yet", and obeying the blank would be destructive on a live box: an empty
-`ADMIN_LOGINS` locks every organizer out of `/admin`, an empty `GITHUB_ORG`
-stops `sync` from starting, an empty `SCORE_IMAGE` disables Secure
-Development. The refresh prints a line naming the key it declined to clear.
+**Every other refreshed key keeps its `.env.fly` value when `.env` assigns it
+an explicitly blank value, and says so.** A refresh cannot tell "deliberately
+unset" from "not filled in yet", and obeying the blank would be destructive on
+a live box: an empty `ADMIN_LOGINS` locks every organizer out of `/admin`, an
+empty `GITHUB_ORG` stops `sync` from starting, an empty `SCORE_IMAGE` disables
+Secure Development. The refresh prints a line naming the key it declined to
+clear.
+
+**A key that is ABSENT from `.env` is a third case, and it keeps the
+`.env.fly` value for every key — the installation id included.** Only an
+explicit assignment clears; a `.env` with no line for a key at all has said
+nothing about it, so the refresh names it, keeps what is deployed, and moves
+on. That is what makes refreshing from a partial `.env` safe.
 
 ### Duplicate keys are warned about, not tolerated silently
 

@@ -378,24 +378,39 @@ if [ "$CMD" = "init" ]; then
     # value gets copied, in the destination which one the machine ends up with.
     warn_duplicate_keys "$FROM_ENV"
     warn_duplicate_keys "$ENV_FILE"
-    # A BLANK source value is ASYMMETRIC, on purpose (#381).
+    # An EXPLICITLY BLANK source value is ASYMMETRIC, on purpose (#381).
     #
-    # GITHUB_APP_INSTALLATION_ID is the one key whose blank means something:
-    # empty tells sync to auto-discover the installation, so after the App is
-    # re-created a PINNED id left behind in this file is not stale-but-working,
-    # it is a permanent `GitHub 401 minting installation token` on every poll.
-    # A blank source therefore CLEARS it.
+    # GITHUB_APP_INSTALLATION_ID is the one key whose explicit blank means
+    # something: empty tells sync to auto-discover the installation, so after
+    # the App is re-created a PINNED id left behind in this file is not
+    # stale-but-working, it is a permanent `GitHub 401 minting installation
+    # token` on every poll. An explicitly blank source therefore CLEARS it.
     #
-    # For every other key a blank source is far more likely to be "not filled
-    # in yet" than "deliberately unset", and obeying it would be destructive on
-    # a live box: clearing ADMIN_LOGINS locks every organizer out of /admin,
-    # clearing GITHUB_ORG stops sync from starting, clearing SCORE_IMAGE
-    # disables Secure Development. Those keep the destination value and say so.
+    # For every other key an explicitly blank source is far more likely to be
+    # "not filled in yet" than "deliberately unset", and obeying it would be
+    # destructive on a live box: clearing ADMIN_LOGINS locks every organizer
+    # out of /admin, clearing GITHUB_ORG stops sync from starting, clearing
+    # SCORE_IMAGE disables Secure Development. Those keep the destination
+    # value and say so.
+    #
+    # An ABSENT key is a third state, and it keeps the destination value for
+    # EVERY key including the installation id: dotenv_file_value returns ""
+    # for "assigned nothing" and for "never mentioned" alike, so without the
+    # presence check below a `.env` that simply has no
+    # GITHUB_APP_INSTALLATION_ID line would unpin a working id nobody asked to
+    # unpin — and the docs promise only an explicit blank assignment clears.
     for key in GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET GITHUB_APP_ID \
                GITHUB_APP_PRIVATE_KEY GITHUB_APP_INSTALLATION_ID SCORE_IMAGE \
                GITHUB_ORG ADMIN_LOGINS; do
       src="$(dotenv_file_value "$FROM_ENV" "$key")"
       cur="$(env_value "$key")"
+      if [ "$(count_key_lines "$FROM_ENV" "$key")" -eq 0 ]; then
+        echo "   WARNING: $key missing from $FROM_ENV — keeping the value already in $ENV_FILE" >&2
+        if [ "$key" = "GITHUB_APP_INSTALLATION_ID" ]; then
+          echo "            An explicit 'GITHUB_APP_INSTALLATION_ID=' line there is what clears it." >&2
+        fi
+        continue
+      fi
       if [ -z "$src" ] && [ "$key" != "GITHUB_APP_INSTALLATION_ID" ]; then
         echo "   WARNING: $key blank in $FROM_ENV — keeping the value already in" >&2
         echo "            $ENV_FILE (refresh cannot tell \"deliberately unset\"" >&2
@@ -444,8 +459,16 @@ if [ "$CMD" = "init" ]; then
         #
         # The temp file is created 600 BEFORE anything is written into it: it
         # holds every credential the event has for as long as the rewrite takes.
-        : > "$ENV_FILE.tmp"
-        chmod 600 "$ENV_FILE.tmp"
+        #
+        # And it is created by mktemp rather than at a predictable
+        # "$ENV_FILE.tmp": if the parent directory is writable by a
+        # less-trusted user, that path can be pre-created as a symlink for the
+        # rewrite to follow, and a chmod after the fact does not close the
+        # window the write already went through (CWE-59). mktemp makes the
+        # file atomically, at a name nobody could have guessed, and every
+        # write below goes to that exact path.
+        tmp_env="$(mktemp "${ENV_FILE}.tmp.XXXXXX")" || exit 1
+        chmod 600 "$tmp_env" || { rm -f "$tmp_env"; exit 1; }
         # [ \t] rather than [[:space:]]: POSIX class support in awk is
         # version-dependent (mawk), and this has to match on the CI runner's
         # awk as well as macOS's. Same grammar as key_line_ere otherwise.
@@ -454,8 +477,8 @@ if [ "$CMD" = "init" ]; then
             BEGIN { v = ENVIRON["REFRESH_VALUE"] }
             $0 ~ pat { if (!seen) { print k "=" v; seen = 1 } next }
             { print }
-          ' "$ENV_FILE" > "$ENV_FILE.tmp"
-        mv "$ENV_FILE.tmp" "$ENV_FILE"
+          ' "$ENV_FILE" > "$tmp_env" || { rm -f "$tmp_env"; exit 1; }
+        mv "$tmp_env" "$ENV_FILE" || { rm -f "$tmp_env"; exit 1; }
         chmod 600 "$ENV_FILE"
         if [ -z "$src" ]; then
           echo "   $key cleared (source is blank — sync auto-discovers)"
