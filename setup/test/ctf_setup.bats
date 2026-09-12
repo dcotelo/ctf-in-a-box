@@ -1924,6 +1924,29 @@ _fly_step_no_flyctl() {
   [ -z "$(grep -v '^init ' "$BATS_TEST_TMPDIR/deploy.calls")" ]
 }
 
+@test "a hostname with an empty or hyphen-edged label is refused too" {
+  # Each of these passes the eye and the old check — LDH characters only, no
+  # leading or trailing dot, at least one dot — and none of them can resolve.
+  # They would have reached .env.fly as EVENT_URL, and Fly would have served
+  # them as BETTER_AUTH_URL and as the OAuth callback host.
+  local bad fails=""
+  for bad in 'foo..example.org' '-foo.example.org' 'foo-.example.org' \
+             'foo.-example.org' 'foo.example.org-'; do
+    _fly_stubs
+    run _fly_step y "$bad" n
+    if [ -z "$(echo "$output" | grep -F 'is not a hostname')" ]; then
+      fails="$fails $bad"
+    fi
+    if [ -n "$(grep -F "EVENT_URL=https://$bad" .env.fly)" ]; then
+      fails="$fails $bad(written)"
+    fi
+    rm -f .env.fly "$BATS_TEST_TMPDIR/deploy.calls"
+  done
+  # Names the offenders rather than failing on an opaque status, and is the
+  # test's LAST statement so a bad result actually fails it (AGENTS.md).
+  [ -z "$fails" ] || { echo "accepted:$fails"; false; }
+}
+
 @test "a missing flyctl skips the fly.io step with the install instruction" {
   _fly_stubs
   run _fly_step_no_flyctl y

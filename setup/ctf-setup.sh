@@ -1646,10 +1646,20 @@ wiz_fly_deploy() {
   host="${host#http://}"
   host="${host#https://}"
   host="${host%%/*}"
+  # This value becomes EVENT_URL in .env.fly, which Fly then serves as
+  # BETTER_AUTH_URL and as the OAuth callback host — so a string that cannot
+  # be a DNS name has to be caught HERE, before the file is written. Pure
+  # glob cases, because the check runs under bash 3.2: no character outside
+  # the LDH set, no leading or trailing dot, at least one dot, and no label
+  # that is empty (`a..b`) or edged with a hyphen (`-a.b`, `a-.b`, `a.-b`,
+  # `a.b-`) — those parse as hostnames to the eye and resolve nowhere.
   valid=0
   case "$host" in
     *[!A-Za-z0-9.-]*) ;;
     .* | *.) ;;
+    *..*) ;;
+    -* | *-) ;;
+    *.-* | *-.*) ;;
     *.*) valid=1 ;;
   esac
   if [ "$valid" -ne 1 ]; then

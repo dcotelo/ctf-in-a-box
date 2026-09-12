@@ -152,8 +152,9 @@ about them. Preview any mutating step with `--dry-run` — it narrates steps
 there is no admin login, or when Secure Development is on with no org. The
 wizard closes by running `./setup/ctf-setup.sh doctor` — a per-fork status
 matrix you can re-run at any time — and then offers an optional **fly.io
-deploy** (default no), so putting the same event on a public hostname is one
-`y` rather than a trip through the deploy docs.
+deploy** (default no), so putting the same event on a public hostname is a
+guided flow — the hostname, a previewed deploy, then a confirmation — rather
+than a trip through the deploy docs.
 
 <p align="center">
   <img alt="The ctf-setup.sh guided wizard: ASCII banner and step-by-step prompts" src="docs/assets/wizard.jpg" width="820">

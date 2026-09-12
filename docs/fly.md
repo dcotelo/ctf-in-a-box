@@ -220,8 +220,14 @@ defaults to no, and is skipped on an app-only event because the Fly module
 runs the scorer and poller too (issue #371). Either way the two steps below
 are yours: the wizard prints the callback URL, it cannot register it.
 
-1. **OAuth callback** must be exactly `https://<app>.fly.dev/api/auth/callback/github`.
-   Sign-in fails with a `redirect_uri` mismatch otherwise.
+1. **OAuth callback** must be exactly `https://<host>/api/auth/callback/github`,
+   where `<host>` is whatever `EVENT_URL` in `.env.fly` names — `<app>.fly.dev`
+   by default, or your own domain if you deployed behind one. Sign-in fails
+   with a `redirect_uri` mismatch otherwise, and the mismatch names the host
+   it expected. A GitHub OAuth App holds **one** callback URL, so an event
+   served from both a compose box and Fly needs either that app repointed at
+   whichever host contestants use, or a second OAuth App whose client id and
+   secret go in `.env.fly` (leaving `.env`'s pair for the box).
 2. **Check `/admin` loads** for a login listed in `ADMIN_LOGINS` in
    `.env.fly`. A 403 there almost always means that login is missing (or
    misspelled — logins join case-insensitively, but the list itself must
