@@ -407,11 +407,17 @@ The renderer fills `<APP_URL>` with each target's **stock** port
 verify the URL against your rubric's boot strategy (see
 [Booting hard targets](#booting-hard-targets)) before committing the file.
 
-Poll vs push is decided by two optional org Actions secrets — and push is
-**deprecated** ([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
+Poll vs push is selected on the box by `SCORE_INGEST` in `.env` — compose
+mounts `caddy/Caddyfile.${SCORE_INGEST}`, and only the `push` Caddyfile
+exposes `/score` — while these two optional org Actions secrets decide only
+whether the judge makes its outbound `SCORE_API`/`SCORE_TOKEN` POST. Both
+halves have to agree, and push is **deprecated**
+([#377](https://github.com/dcotelo/owasp-ctf/issues/377),
 [ADR 56](decisions.md#adr-56-poll-is-the-score-transport-push-ingest-is-deprecated)):
-it works this release, and in v0.7 the judge's `SCORE_API`/`SCORE_TOKEN` hook
-goes with the rest of the mode. Leave both secrets unset.
+it works this release, and in v0.7 the judge's hook goes with the rest of the
+mode. Poll needs `SCORE_INGEST=poll` and both secrets unset; push needs
+`SCORE_INGEST=push`, both secrets set, and the `push` compose profile. Leave
+both secrets unset.
 
 - **Poll** (default, and the transport going forward): leave
   `LEADERBOARD_URL` / `LEADERBOARD_TOKEN` unset. The judge skips the

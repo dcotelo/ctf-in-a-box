@@ -468,8 +468,13 @@ EOF
   printf '#!/usr/bin/env bash\nexit 1\n' > stubs/gh
   chmod +x stubs/gh
   run env PATH="$BATS_TEST_TMPDIR/stubs:$PATH" NO_COLOR=1 bash "$SCRIPT" doctor
-  printf '%s' "$output" | grep -qF -- 'caddy/Caddyfile.pussh'
-  [ -z "$(printf '%s' "$output" | grep -F -- 'DEPRECATED')" ]
+  # A value that is neither mode expands into a Caddyfile that does not exist,
+  # so the box cannot come up at all — doctor has to FAIL, not merely mention
+  # it (docs/reviewing.md: the doctor subcommand fails closed). The deprecation
+  # notice is for `push`, which still boots, so it must not appear here.
+  printf '%s' "$output" | grep -qF -- 'caddy/Caddyfile.pussh' \
+    && [ -z "$(printf '%s' "$output" | grep -F -- 'DEPRECATED')" ] \
+    && [ "$status" -ne 0 ]
 }
 
 @test "doctor names the push-mode org secrets that are still set" {

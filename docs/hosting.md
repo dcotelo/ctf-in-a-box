@@ -485,7 +485,9 @@ event config file, and it did: #372).
 
 Poll mode is what `scripts/smoke.sh` proves working today — and push mode is
 what nothing proves, which is half of why it is going: no CI job, acceptance
-script or bats case has ever run `SCORE_INGEST=push`, and the Fly module
+script or bats case exercises the push transport end to end through the public
+`/score` endpoint — the only automated coverage it has is a wizard dry-run
+case asserting the deprecation notice and the compose command — and the Fly module
 refuses it outright because a Fly machine has no route for `/score` (#373).
 Its requirements do ship in-kit — the scoring workflow reads the
 `LEADERBOARD_URL`/`LEADERBOARD_TOKEN` org secrets and the scorer's

@@ -423,6 +423,11 @@ cmd_doctor() {
   elif [ -n "$ingest" ] && ! valid_ingest "$ingest"; then
     printf '%s⚠️  %s says SCORE_INGEST=%s, which is neither poll nor push — compose mounts caddy/Caddyfile.%s and "docker compose up" fails. Set SCORE_INGEST=poll.%s\n\n' \
       "$C_YELLOW" "${OUT:-.env}" "$ingest" "$ingest" "$C_RESET"
+    # This one DOES fail closed, unlike the deprecation notice above: the value
+    # expands into a Caddyfile path that does not exist, so the next
+    # `docker compose up` fails outright. `doctor` exiting 0 on a box that
+    # cannot boot is the fail-open shape docs/reviewing.md forbids.
+    rc=1
   fi
 
   # No SCORE_IMAGE: this event does not run Secure Development, so there are
