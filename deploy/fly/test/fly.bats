@@ -473,6 +473,36 @@ ENV
   [ -n "$(grep -E '^  (app|srh|redis):' "$out")" ]
 }
 
+@test "render: a quoted-empty SCORE_IMAGE is empty, the way compose reads it" {
+  need_docker
+  # `SCORE_IMAGE=""` is a legal .env line and compose parses it as EMPTY. A
+  # bare `sed -n 's/^SCORE_IMAGE=//p'` hands back the two-character string
+  # `""`, which is non-empty — so the renderer added secdev, and rendered a
+  # scorer and a sync, for an app-only event.
+  sed 's|^SCORE_IMAGE=.*|SCORE_IMAGE=""|' "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.q"
+  out="$BATS_TEST_TMPDIR/quoted-empty.yml"
+  "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env.q" --out "$out" \
+    --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t
+  [ -s "$out" ]
+  [ -n "$(grep -E '^  (app|srh|redis):' "$out")" ]
+  [ -z "$(grep -E '^  (scorer|sync):' "$out")" ]
+}
+
+@test "render: a quoted SCORE_IMAGE still enables secdev" {
+  need_docker
+  # The complement of the test above: stripping the quotes must not strip the
+  # VALUE. A parser that read `SCORE_IMAGE="ghcr.io/..."` as empty would make
+  # every quoted-env event app-only, which is the same bug pointing the other
+  # way and would pass the test above on its own.
+  sed 's|^SCORE_IMAGE=.*|SCORE_IMAGE="ghcr.io/fixture-org/score:latest"|' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.qv"
+  out="$BATS_TEST_TMPDIR/quoted-value.yml"
+  "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env.qv" --out "$out" \
+    --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t
+  [ -s "$out" ]
+  [ -n "$(grep -E '^  (scorer|sync):' "$out")" ]
+}
+
 @test "render: no build, networks, volumes or profiles keys survive" {
   need_docker
   render
@@ -538,6 +568,52 @@ ENV
   # Every fly invocation goes through fly_run, which prints instead of running.
   # A line that would call fly without that prefix is a real call in a dry run.
   [ -z "$(echo "$output" | grep -E '^fly ')" ]
+}
+
+@test "deploy refuses an ADMIN_LOGINS that parses to no admin" {
+  need_docker
+  cd "$REPO"
+  # `require` only ever checked for an empty string, but the app parses this
+  # value with parseAdminLogins (apps/web/src/lib/admin-logins.ts): split,
+  # trim, drop anything not shaped like a GitHub login. Each of these is
+  # non-empty and parses to NOBODY, so it would deploy an event whose /admin
+  # 403s everyone — the operator included, with another deploy the only fix.
+  for bad in "," " , " "bad login!" "alice@example.com" "-alice" "a--b"; do
+    sed "s|^ADMIN_LOGINS=.*|ADMIN_LOGINS=$bad|" "$BATS_TEST_TMPDIR/env" \
+      > "$BATS_TEST_TMPDIR/env.admins"
+    run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.admins"
+    if [ "$status" -eq 0 ]; then
+      echo "ACCEPTED an unusable ADMIN_LOGINS: [$bad]"
+      return 1
+    fi
+    if ! echo "$output" | grep -qF 'ADMIN_LOGINS'; then
+      echo "refused [$bad] without naming ADMIN_LOGINS: $output"
+      return 1
+    fi
+  done
+  # Decisive, and last: the refusal must not echo the offending value, since a
+  # typo'd roster can hold an email address or a pasted secret. The final loop
+  # iteration above left the "a--b" refusal in $output.
+  [ -z "$(echo "$output" | grep -F -- 'a--b')" ]
+}
+
+@test "deploy accepts a real ADMIN_LOGINS roster" {
+  need_docker
+  cd "$REPO"
+  # The complement, so the refusal above cannot be satisfied by refusing
+  # everything: a plain roster, one padded with spaces and a stray comma, a
+  # login with a legal internal hyphen, and an empty entry between two good
+  # ones all have to pass.
+  for good in "alice,bob" " alice , bob ," "octo-cat" "alice,,bob"; do
+    sed "s|^ADMIN_LOGINS=.*|ADMIN_LOGINS=$good|" "$BATS_TEST_TMPDIR/env" \
+      > "$BATS_TEST_TMPDIR/env.admins"
+    run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.admins"
+    if [ "$status" -ne 0 ]; then
+      echo "REFUSED a usable ADMIN_LOGINS: [$good] -> $output"
+      return 1
+    fi
+  done
+  [ "$status" -eq 0 ]
 }
 
 @test "the /health revision survives dirt outside apps/web" {

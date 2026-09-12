@@ -122,8 +122,39 @@ toml_value() {
   sed -n "s/^$1 *= *\"\([^\"]*\)\".*/\1/p" "$CONFIG_TOML" | head -1
 }
 
+# Compose's .env semantics, for the subset that reaches a value here: an
+# inline `#` comment after whitespace, surrounding whitespace, and ONE pair of
+# matching surrounding quotes. Without it this script and `docker compose`
+# disagree about the same file — `SCORE_IMAGE=""` is empty to compose and the
+# two-character string `""` to a bare `sed`, and every check downstream then
+# validates a value the containers never see. render-compose.sh carries the
+# same function for the same reason; keep the two identical.
+dotenv_value() {
+  local v="$1"
+  v="${v#"${v%%[![:space:]]*}"}"
+  case "$v" in
+  '"'*)
+    # Quoted: the value ends at the closing quote, and `#` inside it is data.
+    v="${v#\"}"
+    v="${v%%\"*}"
+    ;;
+  "'"*)
+    v="${v#\'}"
+    v="${v%%\'*}"
+    ;;
+  *)
+    # Unquoted: a comment starts at the first whitespace-preceded `#`.
+    case "$v" in
+    *[[:space:]]#*) v="${v%%[[:space:]]#*}" ;;
+    esac
+    v="${v%"${v##*[![:space:]]}"}"
+    ;;
+  esac
+  printf '%s' "$v"
+}
+
 env_value() {
-  sed -n "s/^$1=//p" "$ENV_FILE" | tail -1
+  dotenv_value "$(sed -n "s/^$1=//p" "$ENV_FILE" | tail -1)"
 }
 
 require() {
@@ -131,6 +162,66 @@ require() {
     echo "FAIL: $1 is empty in $ENV_FILE" >&2
     exit 1
   fi
+}
+
+# A non-empty ADMIN_LOGINS is not an admin roster. The app parses this string
+# with `parseAdminLogins` (apps/web/src/lib/admin-logins.ts): split on commas,
+# trim, lowercase, and DROP every entry that is not shaped like a GitHub
+# login. So `,`, `" , "` and `alice@example.com` all reach the app as the
+# empty set, `isAdminLogin` fails closed on it, and /admin 403s everyone —
+# including whoever just deployed, whose only fix is another deploy. This
+# mirrors that parser so the refusal happens here instead.
+#
+# The mirrored rule, from LOGIN_RE: 1-39 characters, alphanumeric with single
+# internal hyphens, never leading or trailing. Written as POSIX ERE because
+# the JS original uses a lookahead for "a hyphen must be followed by an
+# alphanumeric", which `([-][A-Za-z0-9]|[A-Za-z0-9])*` says without one.
+ADMIN_LOGIN_ERE='^[A-Za-z0-9]([-][A-Za-z0-9]|[A-Za-z0-9])*$'
+
+require_admin_logins() {
+  local rest="$1" entry valid=0 invalid=0 blank=0
+
+  while [ -n "$rest" ]; do
+    case "$rest" in
+    *,*)
+      entry="${rest%%,*}"
+      rest="${rest#*,}"
+      ;;
+    *)
+      entry="$rest"
+      rest=""
+      ;;
+    esac
+    entry="${entry#"${entry%%[![:space:]]*}"}"
+    entry="${entry%"${entry##*[![:space:]]}"}"
+    if [ -z "$entry" ]; then
+      blank=$((blank + 1))
+    elif [ "${#entry}" -le 39 ] && printf '%s' "$entry" | grep -qE "$ADMIN_LOGIN_ERE"; then
+      valid=$((valid + 1))
+    else
+      invalid=$((invalid + 1))
+    fi
+  done
+
+  [ "$valid" -gt 0 ] && return 0
+
+  # Never echo the entries themselves: a typo'd roster can hold an email
+  # address or a pasted secret. Name the SHAPE and the count instead, the way
+  # countInvalidAdminLogins does.
+  echo "FAIL: ADMIN_LOGINS in $ENV_FILE parses to no admin at all." >&2
+  if [ "$invalid" -gt 0 ]; then
+    echo "      $invalid entries present (counting the one-entry case), none of them" >&2
+    echo "      shaped like a GitHub login: 1-39 characters, alphanumeric with" >&2
+    echo "      single internal hyphens, never leading or trailing." >&2
+  elif [ "$blank" -gt 0 ]; then
+    # Nothing valid and nothing invalid: every entry trimmed away to nothing,
+    # so the value is commas and whitespace (`,`, `" , "`) and no login.
+    echo "      The value is separators and whitespace only ($blank empty entries)." >&2
+  fi
+  echo "      Set at least one GitHub login: ADMIN_LOGINS=your-login" >&2
+  echo "      The app drops unparseable entries, so this would deploy an" >&2
+  echo "      event whose /admin forbids everyone, you included." >&2
+  exit 1
 }
 
 APP="$(toml_value app)"
@@ -471,6 +562,9 @@ for name in BETTER_AUTH_SECRET GITHUB_CLIENT_ID GITHUB_CLIENT_SECRET SCORER_TOKE
             GITHUB_ORG ADMIN_LOGINS; do
   require "$name" "$(env_value "$name")"
 done
+
+# Non-empty is not the same as usable: see require_admin_logins above.
+require_admin_logins "$(env_value ADMIN_LOGINS)"
 
 SRH_TOKEN="$(env_value SRH_TOKEN)"
 REDIS_PASSWORD="$(env_value REDIS_PASSWORD)"

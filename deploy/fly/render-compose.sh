@@ -158,9 +158,43 @@ esac
 # declaration): naming scorer/sync unconditionally would render them even
 # with `--profile app` only, since compose enables a named service's profile
 # on its own.
+#
+# The value is read with COMPOSE's .env semantics, not a bare `sed`, because
+# the same file is about to be handed to `docker compose --env-file`: to
+# compose, `SCORE_IMAGE=""` is empty, while a bare sed hands back the
+# two-character string `""` — and this renderer would then add secdev, and
+# render a scorer and a sync, for an app-only event.
+dotenv_value() {
+  local v="$1"
+  v="${v#"${v%%[![:space:]]*}"}"
+  case "$v" in
+  '"'*)
+    # Quoted: the value ends at the closing quote, and `#` inside it is data.
+    v="${v#\"}"
+    v="${v%%\"*}"
+    ;;
+  "'"*)
+    v="${v#\'}"
+    v="${v%%\'*}"
+    ;;
+  *)
+    # Unquoted: a comment starts at the first whitespace-preceded `#`.
+    case "$v" in
+    *[[:space:]]#*) v="${v%%[[:space:]]#*}" ;;
+    esac
+    v="${v%"${v##*[![:space:]]}"}"
+    ;;
+  esac
+  printf '%s' "$v"
+}
+
+env_value() {
+  dotenv_value "$(sed -n "s/^$1=//p" "$ENV_FILE" | tail -1)"
+}
+
 if [ -z "$PROFILES" ]; then
   PROFILES="--profile app"
-  SCORE_IMAGE_VAL="$(sed -n 's/^SCORE_IMAGE=//p' "$ENV_FILE" | tail -1)"
+  SCORE_IMAGE_VAL="$(env_value SCORE_IMAGE)"
   if [ -n "$SCORE_IMAGE_VAL" ]; then
     PROFILES="$PROFILES --profile secdev"
   fi
