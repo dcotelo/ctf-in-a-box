@@ -1071,3 +1071,32 @@ ENV
   # And it must actually retry rather than give up on one bad response.
   grep -qF 'for _ in 1 2; do' "$FLY/deploy.sh"
 }
+
+@test "render: a colon-delimited SCORE_IMAGE assignment still enables secdev" {
+  need_docker
+  # Compose's .env grammar takes `KEY: value` as well as `KEY=value`. A reader
+  # that only knew `=` read a colon-delimited SCORE_IMAGE as unset and rendered
+  # an app-only stack for an event that has a scorer.
+  sed 's|^SCORE_IMAGE=.*|SCORE_IMAGE: ghcr.io/fixture-org/score:latest|' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.colon"
+  out="$BATS_TEST_TMPDIR/colon.yml"
+  "$FLY/render-compose.sh" --env-file "$BATS_TEST_TMPDIR/env.colon" --out "$out" \
+    --app-image reg/app:t --sync-image reg/sync:t --scorer-image reg/scorer:t
+  [ -s "$out" ]
+  [ -n "$(grep -E '^  (scorer|sync):' "$out")" ]
+}
+
+@test "deploy reads a colon-delimited .env assignment, the way compose does" {
+  need_docker
+  cd "$REPO"
+  # The deploy.sh half: `SCORE_IMAGE: ghcr.io/...` used to read as empty and
+  # `require` refused a file compose would have deployed. The value itself
+  # contains a colon (the image tag), so the delimiter match must stop at the
+  # first one after the key and leave the rest intact.
+  sed -e 's|^SCORE_IMAGE=|SCORE_IMAGE: |' \
+      -e 's|^ADMIN_LOGINS=|ADMIN_LOGINS : |' \
+    "$BATS_TEST_TMPDIR/env" > "$BATS_TEST_TMPDIR/env.colon"
+  run ./deploy/fly/deploy.sh --dry-run --env-file "$BATS_TEST_TMPDIR/env.colon"
+  [ "$status" -eq 0 ]
+  echo "$output" | grep -qF 'ghcr.io/fixture-org/score:latest'
+}

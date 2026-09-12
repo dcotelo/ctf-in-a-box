@@ -193,7 +193,7 @@ env_value() {
   # key and after the `=`, and hands back `value`. Matching only `KEY=` made
   # such a line invisible here — deploy.sh called the key empty and refused,
   # render-compose.sh dropped secdev — while compose read it fine.
-  dotenv_value "$(sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" "$ENV_FILE" | tail -1)"
+  dotenv_value "$(sed -n "s/^[[:space:]]*$1[[:space:]]*[:=][[:space:]]*//p" "$ENV_FILE" | tail -1)"
 }
 
 if [ -z "$PROFILES" ]; then
