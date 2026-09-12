@@ -213,6 +213,13 @@ line and recreate the volumes; `fly.toml` on its own is only the default.
 
 ### Finish by hand
 
+`setup/ctf-setup.sh wizard` can walk this whole sequence for you — its last
+step offers the Fly deploy (`init --from .env`, the public hostname into
+`.env.fly`, a previewed deploy, then `fly certs add` for a custom domain),
+defaults to no, and is skipped on an app-only event because the Fly module
+runs the scorer and poller too (issue #371). Either way the two steps below
+are yours: the wizard prints the callback URL, it cannot register it.
+
 1. **OAuth callback** must be exactly `https://<app>.fly.dev/api/auth/callback/github`.
    Sign-in fails with a `redirect_uri` mismatch otherwise.
 2. **Check `/admin` loads** for a login listed in `ADMIN_LOGINS` in
