@@ -77,13 +77,20 @@ the sections below are the enforceable contract behind it.
    nothing is baked into an image.
 
    A module whose services are **profile-gated** — chosen once, when the
-   stack comes up, not when a switch is flipped (`docker-compose.yml`
-   profiles; `secure-development`'s `scorer` and `sync` under `secdev`) — MUST
+   stack comes up, not when a switch is flipped — MUST
    expose that availability fact to the app as a runtime env var (`SCORE_IMAGE`
    is the worked example) and refuse enabling when it is absent, with the
    reason, in both the panel and the server. `quiz`, `classic` and `ai` need no
    such env var, since their routes, nav entries and tabs ship in every `app`
    image regardless.
+
+   `secure-development` is the worked example of the gating too, and its two
+   services are profiled *differently*: in `docker-compose.yml`, `scorer`
+   carries `["secdev", "push"]` — both ingest modes need the judge — while
+   `sync` carries `["secdev"]` alone. So `SCORE_INGEST=push` is brought up
+   with `--profile push`, which starts the scorer without the poller (in push
+   mode the fork's Action POSTs to the scorer directly, and there is nothing
+   to poll); `poll` uses `--profile secdev` and gets both.
 
    Disabling MUST NOT delete a module's data. Re-enabling has to restore the
    same board, or the toggle is a destructive action wearing a switch.

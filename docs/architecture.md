@@ -1078,7 +1078,10 @@ Every fact about an event reaches the running system one of exactly two ways.
 **Bootstrap — `.env`, read once at container start.** Four keys, plus the
 secrets: `ADMIN_LOGINS` (who may reach `/admin`), `GITHUB_ORG` (the org whose
 forks are linked and polled), `SCORE_IMAGE` (which scorer image to run, and by
-its non-emptiness whether the event runs Secure Development at all), and
+its non-emptiness whether this deployment can provide Secure Development at
+all — it adds the compose profile that gives the module its containers and
+seeds the first-boot default module set; `enabledModules` in
+`ctf:admin:settings` stays the live `/admin` selector), and
 `EVENT_URL` ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)).
 The app reads the first two through `src/lib/bootstrap-env.ts`, a
 `server-only` module — no `process.env` read ever reaches a client bundle,

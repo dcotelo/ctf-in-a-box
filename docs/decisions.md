@@ -2276,6 +2276,14 @@ one module, no per-module settings, targets as a comma-separated string.
 
 **Status.** Superseded 2026-09-11 by [ADR 55](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml) — there is no baked list any more: the bootstrap set is `ADMIN_LOGINS` in `.env`, read at process start. The decision's substance is unchanged and deliberately preserved: runtime grants stack on top of the bootstrap set, a bootstrap admin can never be revoked from the panel, and `requireAdmin` checks the bootstrap list first without touching Redis and fails closed. Only the cost of changing that set moved, from a rebuild to a restart. Previously: accepted, implementing issue #147.
 
+*Everything below is the decision as it stood, kept for its rationale, and
+every mention of `event.yaml`, of a baked list, and of a rebuild is
+**historical**. Read `.env`'s `ADMIN_LOGINS` for each of them: that is where
+the bootstrap set lives now, the recovery path is "the login in `.env` still
+works", and changing it is a restart rather than a rebuild. See
+[ADR 55](#adr-55-configuration-v2-env-bootstrap-admin-runtime-no-eventyaml)
+for the current configuration model.*
+
 **Context.** `admins` was baked into the app image at build time from
 `event.yaml`. Adding a co-organizer meant editing that file, rebuilding the
 image and redeploying — minutes on a hosted deployment, and a full
@@ -3210,9 +3218,12 @@ value. Concretely —
 - **Compose profiles are derived, not declared.** `poll` is renamed `secdev`
   (`scorer` carries `["secdev", "push"]`, `sync` `["secdev"]`), and
   `scripts/dev-stack` and `deploy/fly/render-compose.sh` add `--profile secdev`
-  **iff `SCORE_IMAGE` is non-empty**. That is the one place "does this event
-  run Secure Development" is answered at `up` time, and it is derived rather
-  than a second knob — the direct lesson of the `score_ingest` drift.
+  **iff `SCORE_IMAGE` is non-empty**. That is the one place "can this
+  deployment provide Secure Development's services" is answered at `up` time,
+  and it is derived rather than a second knob — the direct lesson of the
+  `score_ingest` drift. It answers availability only: whether the module is
+  *running* is `enabledModules` in `ctf:admin:settings`, set from `/admin`,
+  which can switch an available module off without touching `.env`.
   ADR 26's conclusion survives verbatim (never give a Secure Development
   service the profile-less treatment; never add a `depends_on` from `app` to a
   profiled service); only the profile's *name* and its *source* changed.

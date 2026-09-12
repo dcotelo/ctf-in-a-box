@@ -49,9 +49,13 @@ keys into `.env`, in this order:
   event that runs no forked content.
 - **`ADMIN_LOGINS`** — comma-separated GitHub logins allowed into `/admin`.
   It defaults to the login running the wizard (`gh api user`), so Enter
-  accepts. **An empty answer is refused**, not written: an empty
-  `ADMIN_LOGINS` makes `/admin` forbid *everyone*, and that failure is silent
-  until somebody tries to open the panel.
+  accepts. **An answer that names no usable login is refused**, not written.
+  The app parses this string and drops every entry that is not shaped like a
+  GitHub login, so `,`, `" , "` and `alice@example.com` all reach it as an
+  empty allowlist — indistinguishable from unset, and `/admin` then forbids
+  *everyone*, silently, until somebody tries to open the panel. Give it at
+  least one real login; the wizard and `deploy/fly/deploy.sh` both refuse the
+  value outright rather than let it deploy.
 - **`SCORE_IMAGE`**, from one question — *"Run Secure Development (fork the
   six targets and score patch PRs)?"*. Yes writes the scorer image reference
   (your existing one, else `ghcr.io/<org>/score:latest`); no writes it empty.
@@ -626,7 +630,7 @@ four are the event's identity to the machine:
 
 | Key | Required | What it drives | Empty or unset means |
 |---|---|---|---|
-| `ADMIN_LOGINS` | **yes** | Comma-separated GitHub logins (matched case-insensitively) allowed into `/admin`. Read by `lib/bootstrap-env.ts` at start. | **Nobody is an admin** — `/admin` 403s every login, including yours. This fails CLOSED on purpose; there is no "no allowlist, let everyone in" state. |
+| `ADMIN_LOGINS` | **yes** | Comma-separated GitHub logins (matched case-insensitively) allowed into `/admin`. Read by `lib/bootstrap-env.ts` at start, and parsed by `parseAdminLogins`: entries are trimmed and any that is not shaped like a GitHub login is dropped. So a value of separators only (`,`), whitespace only, or nothing but invalid entries (an email address, say) parses to the SAME empty allowlist as unset. Set at least one valid login and check the parsed list is not empty. | **Nobody is an admin** — `/admin` 403s every login, including yours. This fails CLOSED on purpose; there is no "no allowlist, let everyone in" state. |
 | `GITHUB_ORG` | when running Secure Development | The event org contestants fork the target repos under. Drives every fork link the app renders, the policy-page prose, and the repos `sync` polls. | The app renders a plain repo name instead of a broken link, and `sync` refuses to start at all, logging `ctf-sync: GITHUB_ORG is not set`. |
 | `SCORE_IMAGE` | when running Secure Development | Your scorer image, built from `scorer/` and pushed somewhere the box and the forks can pull it. | The event does not run Secure Development — see below. |
 | `EVENT_URL` | **yes** | **The** event URL: Caddy's TLS host, the auth callback origin, the HTTPS start-up guard, the CSRF origin check, and the leaderboard link in every score comment ([ADR 43](decisions.md#adr-43-one-url-and-it-lives-in-env-not-eventyaml)). | Defaults to `http://localhost`, which is fine only for a local trial. |
@@ -808,7 +812,7 @@ the same list, annotated), and `doctor` flags a missing `REDIS_PASSWORD`.
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | `lib/upstash.ts`; also `scorer/src/store.js`, `sync/src/redis.js` | *fixed*: `http://srh:80`, `SRH_TOKEN` | Redis-over-REST endpoint. Hints, teams, admin settings and module content live behind it. |
 | `TEAM_WRITES_ENABLED` | `lib/team-store.ts` | *fixed*: `"true"` | Enables team create/join writes; off in mock mode. |
 | `GITHUB_ORG` | `lib/bootstrap-env.ts` | empty | The GitHub org contestants fork the target repos under; drives fork links and policy-page prose. Empty renders plain repo-name text, never a broken link. |
-| `ADMIN_LOGINS` | `lib/bootstrap-env.ts`, `lib/admin-auth.ts` | empty | Comma-separated GitHub logins (case-insensitive) allowed into `/admin`. Empty means nobody; changing it needs an env edit and a restart. |
+| `ADMIN_LOGINS` | `lib/bootstrap-env.ts`, `lib/admin-auth.ts` | empty | Comma-separated GitHub logins (case-insensitive) allowed into `/admin`. Empty means nobody — and so does a value that parses to nobody: unparseable entries are dropped, so separators-only, whitespace-only and invalid-only all mean the same 403 for everyone. Changing it needs an env edit and a restart. |
 
 **Sync** (`sync/src/config.js`, poll mode only):
 
