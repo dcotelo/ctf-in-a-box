@@ -86,6 +86,13 @@ which is what a `.env.fly` written before configuration v2 looks like for
 `EVENT_URL`, `FLY_REGION`, `SRH_TOKEN` and `REDIS_PASSWORD` are left alone —
 they belong to this deployment, not the compose stack `.env` describes.
 
+Each value is read from `.env` in every form `docker compose` accepts —
+`KEY=value`, `KEY = value`, `KEY: value`, a quoted value, a leading
+`export ` — and written back as a canonical `KEY=value` line, replacing the
+existing assignment whatever form *it* took rather than appending a second one.
+Which blank values it obeys, and what it does about a key assigned twice, are
+below.
+
 A deploy refuses outright — naming the key — if `GITHUB_ORG` or
 `ADMIN_LOGINS` is empty in `.env.fly`. Neither fails loudly on the machine:
 an empty allowlist deploys an event whose `/admin` forbids everyone (you
@@ -111,6 +118,60 @@ image and then deploy with `--skip-build` and the machine either keeps running
 the *previous* scorer or is handed a tag Fly does not have. After changing
 `SCORE_IMAGE`, run a normal `./deploy/fly/deploy.sh` once.
 
+### A blank value in `.env` clears one key, and only one
+
+**`GITHUB_APP_INSTALLATION_ID` is the exception: blank in `.env` clears it in
+`.env.fly`.** An empty installation id tells `sync` to discover the
+installation itself, so once the sync App has been re-created a *pinned* id
+left behind here is not stale-but-working — it is a permanent
+`GitHub 401 minting installation token` on every poll.
+
+**Every other refreshed key keeps its `.env.fly` value when `.env` is blank,
+and says so.** A refresh cannot tell "deliberately unset" from "not filled in
+yet", and obeying the blank would be destructive on a live box: an empty
+`ADMIN_LOGINS` locks every organizer out of `/admin`, an empty `GITHUB_ORG`
+stops `sync` from starting, an empty `SCORE_IMAGE` disables Secure
+Development. The refresh prints a line naming the key it declined to clear.
+
+### Duplicate keys are warned about, not tolerated silently
+
+`init` and a deploy both check the env file for a key assigned more than once
+and name the offenders. **The last assignment wins** — here, in the renderer
+and in `docker compose` — so an organizer editing the first occurrence of a
+duplicated `SCORE_IMAGE` changes nothing at all, which is exactly how one live
+`.env.fly` ended up deploying a scorer nobody had selected (issue #381).
+`--refresh` collapses the duplicates of any key it rewrites into one line;
+duplicates of keys it does not own have to be deleted by hand.
+
+### A deploy tells you when `.env.fly` has drifted from `.env`
+
+Before the build, and again in the closing summary, a deploy compares the
+external-system keys in `.env.fly` against `--from` (default `.env`) and
+names every one that differs:
+
+```text
+WARNING: .env.fly and .env disagree on: GITHUB_APP_ID ADMIN_LOGINS
+```
+
+It compares `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_APP_ID`,
+`GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_INSTALLATION_ID`, `SCORE_IMAGE`,
+`GITHUB_ORG` and `ADMIN_LOGINS`, and it **never prints a value** — only the
+key names, the same rule `--dry-run`'s redaction follows. A missing `--from`
+file is not an error and prints nothing; the check runs in every mode,
+`--skip-build` included.
+
+**It warns, it does not refuse.** Separate OAuth apps per environment — one
+for `localhost`, one for the public box — are a legitimate setup, so a
+refusal would break a working deployment over a difference its owner chose.
+The reason it exists at all: an event org was re-created, `.env` was rewritten
+with a new OAuth app and a new sync App, `.env.fly` was never refreshed, and a
+plain deploy shipped the old org's credentials in silence. Every sign-in
+bounced with `?error=application_suspended`, `sync` logged a GitHub 401 for
+all six targets every 30 seconds, and nothing in the deploy, in `/health` or
+in `doctor` — which reads `.env`, not `.env.fly` — pointed at the cause. If
+the drift is not deliberate, the warning names the fix:
+`./deploy/fly/deploy.sh init --refresh --from .env`.
+
 ### Every flag
 
 `deploy.sh [init] [flags]` — `init` prepares the env file and touches nothing
@@ -120,13 +181,14 @@ on Fly; without it the script deploys. `-h`/`--help` prints the same list.
 |---|---|---|
 | `--dry-run` | both | Prints every `fly` command it would run and makes **none** of them; secret values are redacted from the output. `init --dry-run` says what it *would* write and ask |
 | `--env-file <path>` | both | The Fly env file — `init` writes it, a deploy reads it. Default `.env.fly` |
-| `--from <path>` | `init` only | The compose `.env` that `init` copies from (and `--refresh` re-copies from). Default `.env` |
+| `--from <path>` | both | The compose `.env` that `init` copies from (and `--refresh` re-copies from); on a deploy, the file the drift check compares `.env.fly` against. Default `.env`; a missing one is not an error on a deploy |
 | `--region <code>` | `init` only | Sets `FLY_REGION` in the env file without prompting — for a scripted or CI run with no tty. Must be a three-lowercase-letter Fly code (`gru`, `iad`, …); ignored when the env file already carries one |
 | `--refresh` | `init` only | Re-copies the values that must match an **external** system (GitHub OAuth, the sync App, the scorer image, the fork org and its admin allowlist — `GITHUB_ORG`, `ADMIN_LOGINS`) from `--from`, overwriting what is there, then falls through to the same top-up a plain `init` does for anything still missing (issue #381). `EVENT_URL`, `FLY_REGION`, `SRH_TOKEN` and `REDIS_PASSWORD` are left alone — they belong to this deployment |
 | `--skip-build` | deploy only | Reuses the app, sync and scorer images already in Fly's registry instead of building, pushing and mirroring. Turns a multi-minute rebuild into a redeploy when only a secret or a runtime setting changed — nothing but the `/health` build stamp is baked into the app image, so there is no config to miss |
 
-`--from`, `--region` and `--refresh` are accepted on a deploy for symmetry but
-have no effect there.
+`--region` and `--refresh` are accepted on a deploy for symmetry but have no
+effect there. `--from` does: it names the file the drift check compares
+`.env.fly` against.
 
 **`FLY_REGION`** is a line in the env file, not a flag, and it is the one place
 the region lives. `init` fills it in exactly once: an existing value is kept;
