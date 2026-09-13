@@ -11,6 +11,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { oauthErrorCallbackURL, postSigninCallbackURL } from "@/lib/post-signin";
+import MenuChevron from "@/components/menu-chevron";
 
 // Admin menu VISIBILITY only. The real gate is server-side in
 // requireAdmin(), so showing the item to a non-admin — or hiding it from an
@@ -190,6 +191,10 @@ export default function AuthNav() {
           unoptimized
         />
         <span className="hidden font-mono text-xs text-zinc-300 sm:inline">{displayName}</span>
+        {/* Below `sm:` the name is hidden and this is the whole trigger, so the
+            chevron is what keeps a bare avatar reading as a menu rather than as
+            an ornament — it matters more at that width, not less (#411). */}
+        <MenuChevron open={open} />
       </button>
 
       {open && (
